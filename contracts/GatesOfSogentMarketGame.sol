@@ -63,13 +63,15 @@ interface IJsonApiAgent {
 /// @title GatesOfSogentMarketGame
 /// @notice Base prototype: Somnia JSON API Agent fetches market data used to generate hero traits.
 contract GatesOfSogentMarketGame {
+    string public constant GAME_VERSION = "0.3.0-market-gate-forge";
     uint256 public constant SOMNIA_TESTNET_CHAIN_ID = 50312;
     uint256 public constant JSON_API_AGENT_ID = 13174292974160097713;
     uint256 public constant SUBCOMMITTEE_SIZE = 3;
     uint256 public constant JSON_FETCH_COST_PER_AGENT = 0.03 ether;
+    uint256 public constant WEAPON_SHARD_COST = 25;
 
     string public constant MARKET_URL =
-        "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum,somnia-network&vs_currencies=usd";
+        "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum,somnia&vs_currencies=usd";
     uint256 public constant MARKET_COUNT = 3;
 
     IAgentRequester public constant SOMNIA_AGENTS =
@@ -98,12 +100,22 @@ contract GatesOfSogentMarketGame {
         uint256 somniaPrice;
     }
 
+    struct GateRun {
+        bool active;
+        uint16 floor;
+        uint16 hp;
+        uint256 loot;
+    }
+
     uint256 public nextHeroId = 1;
     uint256 public latestBitcoinPrice;
     uint256 public latestEthereumPrice;
     uint256 public latestSomniaPrice;
 
     mapping(uint256 => Hero) public heroes;
+    mapping(uint256 => GateRun) public gateRuns;
+    mapping(address => uint256) public shards;
+    mapping(address => uint256) public craftedWeapons;
     mapping(uint256 => PendingHero) public pendingHeroes;
     mapping(uint256 => bool) public pendingRequests;
     mapping(uint256 => uint256) public requestToMarketId;
@@ -128,6 +140,18 @@ contract GatesOfSogentMarketGame {
         uint8 wisdom
     );
     event AgentRequestFailed(uint256 indexed requestId, uint256 indexed groupId, ResponseStatus status);
+    event GateRunStarted(uint256 indexed heroId, address indexed owner, uint16 hp);
+    event GateFloorResolved(
+        uint256 indexed heroId,
+        address indexed owner,
+        uint16 floor,
+        uint16 hp,
+        uint256 loot,
+        bool active,
+        string outcome
+    );
+    event ShardsBanked(address indexed owner, uint256 amount, uint256 balance);
+    event WeaponCrafted(address indexed owner, uint256 indexed weaponId, uint256 shardCost);
 
     modifier onlySomniaTestnet() {
         require(block.chainid == SOMNIA_TESTNET_CHAIN_ID, "Use Somnia testnet");
@@ -142,11 +166,24 @@ contract GatesOfSogentMarketGame {
         return requiredFee() * MARKET_COUNT;
     }
 
+    function contractVersion() external pure returns (string memory) {
+        return GAME_VERSION;
+    }
+
+    function supportsGateRuns() external pure returns (bool) {
+        return true;
+    }
+
+    function supportsForge() external pure returns (bool) {
+        return true;
+    }
+
     function requestHero(
         string calldata name
     ) external payable onlySomniaTestnet returns (uint256 groupId) {
         require(bytes(name).length > 0 && bytes(name).length <= 40, "Bad hero name");
-        require(msg.value >= requiredTotalFee(), "Need more STT");
+        uint256 totalFee = requiredTotalFee();
+        require(msg.value == totalFee, "Send exact STT fee");
 
         groupId = nextHeroId;
         nextHeroId++;
@@ -160,11 +197,11 @@ contract GatesOfSogentMarketGame {
             somniaPrice: 0
         });
 
-        uint256 fee = requiredFee();
+        uint256 fee = totalFee / MARKET_COUNT;
 
         _requestMarket(groupId, 1, "bitcoin.usd", fee);
         _requestMarket(groupId, 2, "ethereum.usd", fee);
-        _requestMarket(groupId, 3, "somnia-network.usd", fee);
+        _requestMarket(groupId, 3, "somnia.usd", fee);
 
         emit HeroRequested(groupId, msg.sender, name);
     }
@@ -191,6 +228,11 @@ contract GatesOfSogentMarketGame {
         uint256 marketPrice = abi.decode(responses[0].result, (uint256));
         uint256 marketId = requestToMarketId[requestId];
 
+        if (pendingHeroes[groupId].owner == address(0)) {
+            emit AgentRequestFailed(requestId, groupId, ResponseStatus.Failed);
+            return;
+        }
+
         _storeMarket(groupId, marketId, marketPrice);
 
         emit MarketDataReceived(requestId, groupId, marketId, marketPrice);
@@ -202,6 +244,66 @@ contract GatesOfSogentMarketGame {
 
     function getOwnerHeroes(address owner) external view returns (uint256[] memory) {
         return ownerHeroes[owner];
+    }
+
+    function startGateRun(uint256 heroId) external onlySomniaTestnet {
+        Hero storage hero = heroes[heroId];
+        require(hero.owner == msg.sender, "Not hero owner");
+        require(!gateRuns[heroId].active, "Gate already active");
+
+        gateRuns[heroId] = GateRun({active: true, floor: 1, hp: 100, loot: 0});
+
+        emit GateRunStarted(heroId, msg.sender, 100);
+    }
+
+    function resolveGateFloor(uint256 heroId) external onlySomniaTestnet {
+        Hero storage hero = heroes[heroId];
+        require(hero.owner == msg.sender, "Not hero owner");
+
+        GateRun storage run = gateRuns[heroId];
+        require(run.active, "No active gate");
+
+        uint16 floor = run.floor;
+        uint256 roll = _gateRoll(hero.seed, heroId, floor, run.hp, run.loot);
+        uint16 damage = _gateDamage(hero.bravery, hero.wisdom, hero.rarity, floor, roll);
+
+        if (damage >= run.hp) {
+            run.hp = 0;
+            run.loot = 0;
+            run.active = false;
+            emit GateFloorResolved(heroId, msg.sender, floor, run.hp, run.loot, run.active, "DEFEATED");
+            return;
+        }
+
+        run.hp -= damage;
+        run.loot += _gateLoot(hero.greed, hero.rarity, floor);
+
+        if (run.hp < 34 && hero.bravery < 70) {
+            run.active = false;
+            _bankShards(msg.sender, run.loot);
+            emit GateFloorResolved(heroId, msg.sender, floor, run.hp, run.loot, run.active, "RETREATED");
+            return;
+        }
+
+        if (_continuesDeeper(hero.bravery, hero.greed, hero.wisdom, run.hp, roll)) {
+            run.floor = floor + 1;
+            emit GateFloorResolved(heroId, msg.sender, floor, run.hp, run.loot, run.active, "CONTINUED");
+            return;
+        }
+
+        run.active = false;
+        _bankShards(msg.sender, run.loot);
+        emit GateFloorResolved(heroId, msg.sender, floor, run.hp, run.loot, run.active, "RETURNED");
+    }
+
+    function craftWeapon() external onlySomniaTestnet returns (uint256 weaponId) {
+        require(shards[msg.sender] >= WEAPON_SHARD_COST, "Need more shards");
+
+        shards[msg.sender] -= WEAPON_SHARD_COST;
+        craftedWeapons[msg.sender]++;
+        weaponId = craftedWeapons[msg.sender];
+
+        emit WeaponCrafted(msg.sender, weaponId, WEAPON_SHARD_COST);
     }
 
     function _requestMarket(
@@ -252,8 +354,6 @@ contract GatesOfSogentMarketGame {
         PendingHero memory pendingHero = pendingHeroes[groupId];
         delete pendingHeroes[groupId];
 
-        uint256 heroId = groupId;
-
         uint256 seed = uint256(
             keccak256(
                 abi.encodePacked(
@@ -261,7 +361,6 @@ contract GatesOfSogentMarketGame {
                     pendingHero.ethereumPrice,
                     pendingHero.somniaPrice,
                     groupId,
-                    heroId,
                     pendingHero.owner,
                     pendingHero.name,
                     block.timestamp,
@@ -270,23 +369,25 @@ contract GatesOfSogentMarketGame {
             )
         );
 
-        Hero memory hero = Hero({
-            owner: pendingHero.owner,
-            name: pendingHero.name,
-            seed: seed,
-            bitcoinPrice: pendingHero.bitcoinPrice,
-            ethereumPrice: pendingHero.ethereumPrice,
-            somniaPrice: pendingHero.somniaPrice,
-            classId: uint8((seed % 4) + 1),
-            rarity: _rarity(seed),
-            bravery: uint8(((seed >> 16) % 100) + 1),
-            greed: uint8(((seed >> 32) % 100) + 1),
-            wisdom: uint8(((seed >> 48) % 100) + 1)
-        });
+        Hero storage hero = heroes[groupId];
+        hero.owner = pendingHero.owner;
+        hero.name = pendingHero.name;
+        hero.seed = seed;
+        hero.bitcoinPrice = pendingHero.bitcoinPrice;
+        hero.ethereumPrice = pendingHero.ethereumPrice;
+        hero.somniaPrice = pendingHero.somniaPrice;
+        hero.classId = uint8((seed % 4) + 1);
+        hero.rarity = _rarity(seed);
+        hero.bravery = uint8(((seed >> 16) % 100) + 1);
+        hero.greed = uint8(((seed >> 32) % 100) + 1);
+        hero.wisdom = uint8(((seed >> 48) % 100) + 1);
 
-        heroes[heroId] = hero;
-        ownerHeroes[pendingHero.owner].push(heroId);
+        ownerHeroes[pendingHero.owner].push(groupId);
+        _emitHeroGenerated(groupId);
+    }
 
+    function _emitHeroGenerated(uint256 heroId) private {
+        Hero storage hero = heroes[heroId];
         emit HeroGenerated(
             heroId,
             hero.owner,
@@ -303,6 +404,12 @@ contract GatesOfSogentMarketGame {
         );
     }
 
+    function _bankShards(address owner, uint256 amount) private {
+        if (amount == 0) return;
+        shards[owner] += amount;
+        emit ShardsBanked(owner, amount, shards[owner]);
+    }
+
     function _rarity(uint256 seed) private pure returns (uint8) {
         uint256 roll = seed % 100;
 
@@ -311,6 +418,60 @@ contract GatesOfSogentMarketGame {
         if (roll < 35) return 3;
         if (roll < 65) return 2;
         return 1;
+    }
+
+    function _gateRoll(
+        uint256 seed,
+        uint256 heroId,
+        uint16 floor,
+        uint16 hp,
+        uint256 loot
+    ) private view returns (uint256) {
+        return
+            uint256(
+                keccak256(
+                    abi.encodePacked(
+                        seed,
+                        heroId,
+                        floor,
+                        hp,
+                        loot,
+                        block.timestamp,
+                        blockhash(block.number - 1)
+                    )
+                )
+            ) % 100;
+    }
+
+    function _gateDamage(
+        uint8 bravery,
+        uint8 wisdom,
+        uint8 rarity,
+        uint16 floor,
+        uint256 roll
+    ) private pure returns (uint16) {
+        uint16 pressure = uint16(16 + (uint256(floor) * 9) + (roll % 16));
+        uint16 defense = uint16(((uint16(bravery) + uint16(wisdom)) / 8) + (uint16(rarity) * 4));
+
+        if (pressure <= defense + 3) return 3;
+        return uint16(pressure - defense);
+    }
+
+    function _gateLoot(uint8 greed, uint8 rarity, uint16 floor) private pure returns (uint256) {
+        return (uint256(floor) * 5) + (uint256(rarity) * 3) + (uint256(greed) / 16);
+    }
+
+    function _continuesDeeper(
+        uint8 bravery,
+        uint8 greed,
+        uint8 wisdom,
+        uint16 hp,
+        uint256 roll
+    ) private pure returns (bool) {
+        if (greed > 68 && roll > 32) return true;
+        if (bravery > 58 && hp > 24) return true;
+        if (wisdom > 72 && hp > 40) return true;
+        return false;
     }
 
     receive() external payable {}

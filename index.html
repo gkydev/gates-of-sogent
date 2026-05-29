@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>The Gate of Sogents</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' fill='%23070b0c'/%3E%3Cpath d='M12 54V28c0-13 9-22 20-22s20 9 20 22v26h-9V28c0-8-5-14-11-14S21 20 21 28v26z' fill='%2342d6c5'/%3E%3Cpath d='M25 54V31c0-5 3-9 7-9s7 4 7 9v23z' fill='%230f2022'/%3E%3C/svg%3E" />
+    <link rel="stylesheet" href="./styles.css" />
+    <script src="https://cdn.jsdelivr.net/npm/pixi.js@8.18.1/dist/pixi.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/ethers@6.16.0/dist/ethers.umd.min.js"></script>
+    <script type="module" src="./src/app.js"></script>
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Somnia Agents RPG Prototype</p>
+          <h1>The Gate of Sogents</h1>
+        </div>
+        <div class="status-strip" aria-label="Prototype status">
+          <span class="status-light"></span>
+          <span>Simulation First</span>
+          <span class="divider"></span>
+          <span>Somnia Adapter Ready</span>
+        </div>
+      </header>
+
+      <section class="game-shell" aria-label="Playable game">
+        <section class="world-panel" aria-label="RPG world">
+          <div id="pixi-stage" class="pixi-stage"></div>
+
+          <div class="world-overlay">
+            <div class="location-tag">
+              <span>Ruined Sogent Camp</span>
+              <strong id="nearby-label">No one nearby</strong>
+            </div>
+            <button id="talk-button" class="talk-button" type="button" disabled>Talk</button>
+          </div>
+
+          <section id="dialogue" class="dialogue is-hidden" aria-live="polite">
+            <div>
+              <p id="dialogue-speaker" class="dialogue-speaker">NPC</p>
+              <p id="dialogue-text" class="dialogue-text"></p>
+            </div>
+            <div class="dialogue-actions">
+              <button id="dialogue-action" type="button">Action</button>
+              <button id="dialogue-close" type="button" class="quiet-button">Close</button>
+            </div>
+          </section>
+
+          <div class="mobile-controls" aria-label="Movement controls">
+            <button type="button" data-move="up">▲</button>
+            <div>
+              <button type="button" data-move="left">◀</button>
+              <button type="button" data-move="down">▼</button>
+              <button type="button" data-move="right">▶</button>
+            </div>
+          </div>
+        </section>
+
+        <aside class="hud" aria-label="Game interface">
+          <section class="panel hero-panel">
+            <div class="panel-heading">
+              <h2>Hero</h2>
+              <span id="hero-count">0</span>
+            </div>
+            <form id="recruit-form" class="recruit-form">
+              <input
+                id="hero-name"
+                name="heroName"
+                type="text"
+                maxlength="40"
+                placeholder="Hero name"
+                autocomplete="off"
+              />
+              <button type="submit">Recruit</button>
+            </form>
+            <div id="selected-hero" class="selected-hero"></div>
+          </section>
+
+          <section class="panel market-panel">
+            <div class="panel-heading">
+              <h2>Market Agent</h2>
+              <span id="market-clock">--:--:--</span>
+            </div>
+            <div id="market-grid" class="market-grid"></div>
+          </section>
+
+          <section class="panel inventory-panel">
+            <div class="panel-heading">
+              <h2>Inventory</h2>
+              <span id="weapon-count">0</span>
+            </div>
+            <div class="inventory-grid">
+              <div>
+                <span class="inventory-label">Shards</span>
+                <strong id="shard-count">0</strong>
+              </div>
+              <div>
+                <span class="inventory-label">Weapon</span>
+                <strong id="weapon-name">None</strong>
+              </div>
+            </div>
+          </section>
+
+          <section class="panel contract-panel">
+            <div class="panel-heading">
+              <h2>Somnia</h2>
+              <span id="wallet-short">Not connected</span>
+            </div>
+            <dl class="contract-grid">
+              <div>
+                <dt>Mode</dt>
+                <dd id="connection-mode">Simulation</dd>
+              </div>
+              <div>
+                <dt>Contract</dt>
+                <dd id="contract-status">No address set</dd>
+              </div>
+              <div>
+                <dt>Version</dt>
+                <dd id="contract-version">Unknown</dd>
+              </div>
+              <div>
+                <dt>Next Hook</dt>
+                <dd id="next-hook">requestHero(name)</dd>
+              </div>
+            </dl>
+            <div class="wallet-tools">
+              <input
+                id="contract-address"
+                type="text"
+                placeholder="Deployed contract address"
+                autocomplete="off"
+                spellcheck="false"
+              />
+              <div class="wallet-actions">
+                <button id="connect-wallet" type="button">Connect Wallet</button>
+                <button id="reload-heroes" type="button" class="quiet-button">Reload</button>
+                <button id="use-simulation" type="button" class="quiet-button">Simulation</button>
+              </div>
+              <p id="wallet-message" class="wallet-message">Paste the deployed game contract to use Somnia.</p>
+              <div class="chain-queue">
+                <div class="queue-heading">
+                  <span>Pending Agent Requests</span>
+                  <strong id="pending-count">0</strong>
+                </div>
+                <ul id="pending-list" class="pending-list"></ul>
+              </div>
+            </div>
+          </section>
+
+          <section class="panel roster-panel">
+            <div class="panel-heading">
+              <h2>Roster</h2>
+              <span id="selected-name">No hero</span>
+            </div>
+            <div id="hero-list" class="hero-list"></div>
+          </section>
+
+          <section class="panel log-panel">
+            <div class="panel-heading">
+              <h2>Live Log</h2>
+              <span id="log-count">0</span>
+            </div>
+            <ol id="event-log" class="event-log"></ol>
+          </section>
+        </aside>
+      </section>
+    </main>
+  </body>
+</html>
