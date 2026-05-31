@@ -35,6 +35,12 @@ Contract version:
 0.5.0-llm-story
 ```
 
+Current Somnia Testnet deployment:
+
+```text
+0xF0045108604638ec0c4f986Ff44fCeBB9946607e
+```
+
 Included:
 
 - Somnia Agents integration
