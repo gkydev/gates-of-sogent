@@ -116,6 +116,7 @@ export function SimulationGameAdapter() {
       floor: 1,
       hp: 100,
       loot: 0,
+      pendingDecision: false,
     });
 
     return {
@@ -250,6 +251,7 @@ export function SomniaContractAdapter({ contractAddress, onHeroRequested, onHero
     this.gateSupport = false;
     this.forgeSupport = false;
     this.llmGateSupport = false;
+    this.pendingGateDecisions = new Set();
     this.runs = new Map();
     this.shards = 0;
     this.weapons = 0;
@@ -386,32 +388,50 @@ export function SomniaContractAdapter({ contractAddress, onHeroRequested, onHero
         floor: 1,
         hp: Number(hp),
         loot: 0,
+        pendingDecision: false,
       });
     });
 
     this.contract.on("GateDecisionRequested", (requestId, heroId, owner) => {
       if (owner.toLowerCase() !== this.account.toLowerCase()) return;
+      const parsedHeroId = Number(heroId);
+      this.pendingGateDecisions.add(parsedHeroId);
+      const run = this.runs.get(parsedHeroId);
+      if (run) {
+        this.runs.set(parsedHeroId, { ...run, pendingDecision: true });
+      }
       this.onEvent(
         "system",
-        `LLM Gate Agent request ${requestId.toString()} submitted for hero ${Number(heroId)}.`,
+        `LLM Gate Agent request ${requestId.toString()} submitted for hero ${parsedHeroId}.`,
       );
     });
 
     this.contract.on("GateDecisionReceived", (requestId, heroId, decision) => {
+      const parsedHeroId = Number(heroId);
+      if (!this.runs.has(parsedHeroId)) return;
       this.onEvent(
         "system",
-        `LLM Gate Agent ${requestId.toString()} suggested ${decision} for hero ${Number(heroId)}.`,
+        `LLM Gate Agent ${requestId.toString()} suggested ${decision} for hero ${parsedHeroId}.`,
       );
     });
 
-    this.contract.on("GateFloorResolved", (heroId, owner, floor, hp, loot, active) => {
+    this.contract.on("GateFloorResolved", (heroId, owner, floor, hp, loot, active, outcome) => {
       if (owner.toLowerCase() !== this.account.toLowerCase()) return;
-      this.runs.set(Number(heroId), {
+      const parsedHeroId = Number(heroId);
+      this.pendingGateDecisions.delete(parsedHeroId);
+      this.runs.set(parsedHeroId, {
         active,
         floor: active ? Number(floor) + 1 : Number(floor),
         hp: Number(hp),
         loot: Number(loot),
+        pendingDecision: false,
       });
+      if (this.llmGateSupport) {
+        this.onEvent(
+          active ? "reward" : outcome === "DEFEATED" ? "danger" : "system",
+          `On-chain Floor ${Number(floor)}: ${outcome}. HP ${Number(hp)}. Loot ${Number(loot)} shards.`,
+        );
+      }
     });
 
     this.contract.on("ShardsBanked", (owner, amount, balance) => {
@@ -535,6 +555,11 @@ export function SomniaContractAdapter({ contractAddress, onHeroRequested, onHero
       const tx = await this.contract.requestGateDecision(hero.id, { value: fee });
       this.onEvent("system", `Submitted requestGateDecision(${hero.id}) to Somnia LLM: ${shortAddress(tx.hash)}.`);
       await tx.wait();
+      this.pendingGateDecisions.add(hero.id);
+      const run = this.runs.get(hero.id);
+      if (run) {
+        this.runs.set(hero.id, { ...run, pendingDecision: true });
+      }
 
       return {
         events: [
@@ -623,13 +648,22 @@ export function SomniaContractAdapter({ contractAddress, onHeroRequested, onHero
   };
 
   SomniaContractAdapter.prototype.refreshGateRun = async function refreshGateRun(heroId) {
-    const run = await this.contract.gateRuns(heroId);
+    const [run, pendingDecision] = await Promise.all([
+      this.contract.gateRuns(heroId),
+      this.llmGateSupport ? this.contract.pendingGateDecision(heroId) : Promise.resolve(false),
+    ]);
     const parsed = {
       active: run.active ?? run[0],
       floor: Number(run.floor ?? run[1]),
       hp: Number(run.hp ?? run[2]),
       loot: Number(run.loot ?? run[3]),
+      pendingDecision: Boolean(pendingDecision),
     };
+    if (parsed.pendingDecision) {
+      this.pendingGateDecisions.add(heroId);
+    } else {
+      this.pendingGateDecisions.delete(heroId);
+    }
     this.runs.set(heroId, parsed);
     return parsed;
   };

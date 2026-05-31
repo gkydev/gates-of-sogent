@@ -4,6 +4,7 @@ import {
   INTERACT_DISTANCE,
   PLAYER_SPEED,
   SOMNIA_CHAIN_ID_HEX,
+  DEFAULT_GAME_CONTRACT_ADDRESS,
   STORAGE_CONTRACT_ADDRESS,
   CONTRACT_QUERY_PARAM,
   WEAPON_SHARD_COST,
@@ -72,7 +73,7 @@ const elements = {
       gateSupport: false,
       forgeSupport: false,
       llmGateSupport: false,
-      message: "Paste the deployed game contract to use Somnia.",
+      message: "Current Somnia test contract is loaded. Connect wallet to use it.",
       pendingRequests: [],
       busy: false,
     },
@@ -125,7 +126,7 @@ const elements = {
     const params = new URLSearchParams(window.location.search);
     const queryAddress = params.get(CONTRACT_QUERY_PARAM);
     const savedAddress = localStorage.getItem(STORAGE_CONTRACT_ADDRESS);
-    const address = queryAddress || savedAddress || "";
+    const address = queryAddress || savedAddress || DEFAULT_GAME_CONTRACT_ADDRESS;
 
     if (!address) return;
 
@@ -133,7 +134,9 @@ const elements = {
     state.connection.contractAddress = address;
     state.connection.message = queryAddress
       ? "Contract address loaded from URL. Connect wallet when ready."
-      : "Saved contract address loaded. Connect wallet when ready.";
+      : savedAddress
+        ? "Saved contract address loaded. Connect wallet when ready."
+        : "Current Somnia test contract loaded. Connect wallet when ready.";
 
     if (queryAddress) {
       localStorage.setItem(STORAGE_CONTRACT_ADDRESS, queryAddress);
@@ -999,19 +1002,48 @@ const elements = {
         return;
       }
       const run = adapter.getRun(hero.id);
+      if (run?.active && run.pendingDecision) {
+        addEvent("system", `Waiting for the Somnia LLM callback for ${hero.name} on Floor ${run.floor}.`);
+        renderAll();
+        return;
+      }
       state.connection.busy = true;
       state.connection.message =
         run?.active && state.connection.mode === "somnia" && adapter.llmGateSupport
           ? "Requesting LLM gate decision..."
           : run?.active
             ? "Resolving gate floor..."
-            : "Starting gate run...";
+            : state.connection.mode === "somnia" && adapter.llmGateSupport
+              ? "Entering gate and requesting Floor 1 LLM decision..."
+              : "Starting gate run...";
       renderAll();
       try {
-        const result = run?.active ? await adapter.resolveGateStep(hero) : await adapter.enterGate(hero.id, hero.name);
+        const events = [];
+        if (run?.active) {
+          const result = await adapter.resolveGateStep(hero);
+          events.push(...result.events);
+        } else {
+          const entry = await adapter.enterGate(hero.id, hero.name);
+          events.push(...entry.events);
+
+          const activeRun = adapter.getRun(hero.id);
+          if (activeRun?.active && (state.connection.mode !== "somnia" || adapter.llmGateSupport)) {
+            state.connection.message =
+              state.connection.mode === "somnia" && adapter.llmGateSupport
+                ? "Requesting Floor 1 LLM decision..."
+                : "Resolving Floor 1...";
+            renderConnection();
+            const result = await adapter.resolveGateStep(hero);
+            events.push(...result.events);
+          }
+        }
         state.connection.message =
-          state.connection.mode === "somnia" ? "Gate transaction confirmed." : "Simulation gate action resolved.";
-        result.events.forEach((item) => addEvent(item.type, item.message));
+          state.connection.mode === "somnia" && adapter.llmGateSupport
+            ? "Gate transaction confirmed. Waiting for LLM callback."
+            : state.connection.mode === "somnia"
+              ? "Gate transaction confirmed."
+              : "Simulation gate action resolved.";
+        events.forEach((item) => addEvent(item.type, item.message));
       } catch (error) {
         state.connection.message = normalizeError(error);
         addEvent("danger", state.connection.message);
@@ -1486,8 +1518,8 @@ const elements = {
       detail.textContent = "Talk to the Gate Warden";
     } else if (run.active) {
       status.classList.add("is-active");
-      value.textContent = `Floor ${run.floor} / ${run.hp} HP`;
-      detail.textContent = `${run.loot} shards carried`;
+      value.textContent = run.pendingDecision ? `Floor ${run.floor} / waiting` : `Floor ${run.floor} / ${run.hp} HP`;
+      detail.textContent = run.pendingDecision ? "Somnia LLM callback pending" : `${run.loot} shards carried`;
     } else if (run.hp <= 0) {
       status.classList.add("is-danger");
       value.textContent = "Defeated";
@@ -1511,7 +1543,7 @@ const elements = {
 
     if (run.active) {
       badge.classList.add("is-active");
-      badge.textContent = `Gate F${run.floor} / ${run.hp} HP`;
+      badge.textContent = run.pendingDecision ? `Gate F${run.floor} / LLM` : `Gate F${run.floor} / ${run.hp} HP`;
     } else if (run.hp <= 0) {
       badge.classList.add("is-danger");
       badge.textContent = "Defeated";
@@ -1605,6 +1637,9 @@ const elements = {
     if (!run) {
       return `${hero.name} is ready at camp. Enter the gate to start Floor 1.`;
     }
+    if (run.active && run.pendingDecision) {
+      return `${hero.name} is waiting for the Somnia LLM Agent callback on Floor ${run.floor}. The floor will resolve when validators return the decision.`;
+    }
     if (run.active) {
       return `${hero.name} is on Floor ${run.floor} with ${run.hp} HP and ${run.loot} shards. Resolve the next floor decision.`;
     }
@@ -1627,12 +1662,19 @@ const elements = {
     if (!hero) return "Recruit First";
 
     const run = adapter.getRun(hero.id);
+    if (run?.active && run.pendingDecision) return "Waiting LLM";
+    if (run?.active && state.connection.mode === "somnia" && state.connection.llmGateSupport) return "Ask LLM";
     return run?.active ? "Resolve Floor" : "Enter Gate";
   }
 
   function getNpcActionDisabled(npc) {
     if (state.connection.busy) return true;
-    if (npc.id === "warden") return !getSelectedHero();
+    if (npc.id === "warden") {
+      const hero = getSelectedHero();
+      if (!hero) return true;
+      const run = adapter.getRun(hero.id);
+      return Boolean(run?.active && run.pendingDecision);
+    }
     if (npc.id === "blacksmith") {
       const inventory = adapter.getInventory ? adapter.getInventory() : { shards: 0 };
       const forgeCost = inventory.forgeCost || state.forgeCost;

@@ -95,17 +95,17 @@ input:focus {
 
 .topbar {
   display: flex;
-  justify-content: space-between;
-  align-items: end;
-  gap: 16px;
-  margin-bottom: 14px;
+  justify-content: center;
+  align-items: center;
+  min-height: 86px;
+  margin-bottom: 6px;
 }
 
-.eyebrow {
-  margin: 0 0 5px;
-  color: var(--teal);
-  font-size: 0.8rem;
-  text-transform: uppercase;
+.brand-lockup {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
 }
 
 h1,
@@ -115,42 +115,31 @@ p {
 }
 
 h1 {
-  font-size: clamp(1.75rem, 3.4vw, 3.25rem);
-  line-height: 0.95;
-  text-shadow: 3px 3px 0 #0a0b0b, 0 0 20px rgba(66, 214, 197, 0.15);
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.game-logo {
+  display: block;
+  width: clamp(180px, 16vw, 280px);
+  max-height: 112px;
+  object-fit: contain;
+  object-position: center;
+  image-rendering: pixelated;
+  filter: drop-shadow(0 12px 22px rgba(0, 0, 0, 0.58)) drop-shadow(0 0 18px rgba(66, 214, 197, 0.12));
 }
 
 h2 {
   color: #f8d790;
   font-size: 1rem;
   line-height: 1;
-}
-
-.status-strip {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  min-height: 36px;
-  padding: 0 12px;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  color: var(--muted);
-  background: rgba(20, 24, 25, 0.86);
-  white-space: nowrap;
-}
-
-.status-light {
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
-  background: var(--moss);
-  box-shadow: 0 0 12px var(--moss);
-}
-
-.divider {
-  width: 1px;
-  height: 18px;
-  background: var(--line);
 }
 
 .game-shell {
@@ -737,13 +726,17 @@ h2 {
   }
 
   .topbar {
-    align-items: stretch;
-    flex-direction: column;
+    min-height: 72px;
   }
 
-  .status-strip {
+  .brand-lockup {
     justify-content: center;
-    white-space: normal;
+  }
+
+  .game-logo {
+    width: min(100%, 240px);
+    max-height: 104px;
+    object-position: center;
   }
 
   .world-panel,
