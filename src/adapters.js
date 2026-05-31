@@ -249,6 +249,7 @@ export function SomniaContractAdapter({ contractAddress, onHeroRequested, onHero
     this.contractVersion = "Unknown";
     this.gateSupport = false;
     this.forgeSupport = false;
+    this.llmGateSupport = false;
     this.runs = new Map();
     this.shards = 0;
     this.weapons = 0;
@@ -294,6 +295,11 @@ export function SomniaContractAdapter({ contractAddress, onHeroRequested, onHero
     this.contractVersion = await this.contract.contractVersion();
     this.gateSupport = await this.contract.supportsGateRuns();
     this.forgeSupport = await this.contract.supportsForge();
+    try {
+      this.llmGateSupport = await this.contract.supportsLLMGateDecisions();
+    } catch {
+      this.llmGateSupport = false;
+    }
     if (!this.gateSupport) {
       throw new Error("Connected contract does not support gate runs. Deploy the latest contract.");
     }
@@ -311,6 +317,8 @@ export function SomniaContractAdapter({ contractAddress, onHeroRequested, onHero
     this.contract.removeAllListeners("HeroGenerated");
     this.contract.removeAllListeners("AgentRequestFailed");
     this.contract.removeAllListeners("GateRunStarted");
+    this.contract.removeAllListeners("GateDecisionRequested");
+    this.contract.removeAllListeners("GateDecisionReceived");
     this.contract.removeAllListeners("GateFloorResolved");
     this.contract.removeAllListeners("ShardsBanked");
     this.contract.removeAllListeners("WeaponCrafted");
@@ -379,6 +387,21 @@ export function SomniaContractAdapter({ contractAddress, onHeroRequested, onHero
         hp: Number(hp),
         loot: 0,
       });
+    });
+
+    this.contract.on("GateDecisionRequested", (requestId, heroId, owner) => {
+      if (owner.toLowerCase() !== this.account.toLowerCase()) return;
+      this.onEvent(
+        "system",
+        `LLM Gate Agent request ${requestId.toString()} submitted for hero ${Number(heroId)}.`,
+      );
+    });
+
+    this.contract.on("GateDecisionReceived", (requestId, heroId, decision) => {
+      this.onEvent(
+        "system",
+        `LLM Gate Agent ${requestId.toString()} suggested ${decision} for hero ${Number(heroId)}.`,
+      );
     });
 
     this.contract.on("GateFloorResolved", (heroId, owner, floor, hp, loot, active) => {
@@ -507,6 +530,22 @@ export function SomniaContractAdapter({ contractAddress, onHeroRequested, onHero
   };
 
   SomniaContractAdapter.prototype.resolveGateStep = async function resolveGateStep(hero) {
+    if (this.llmGateSupport) {
+      const fee = await this.contract.requiredGateDecisionFee();
+      const tx = await this.contract.requestGateDecision(hero.id, { value: fee });
+      this.onEvent("system", `Submitted requestGateDecision(${hero.id}) to Somnia LLM: ${shortAddress(tx.hash)}.`);
+      await tx.wait();
+
+      return {
+        events: [
+          {
+            type: "system",
+            message: "LLM Gate Agent request confirmed. Waiting for Somnia validator callback.",
+          },
+        ],
+      };
+    }
+
     const tx = await this.contract.resolveGateFloor(hero.id);
     this.onEvent("system", `Submitted resolveGateFloor(${hero.id}) to Somnia: ${shortAddress(tx.hash)}.`);
     const receipt = await tx.wait();

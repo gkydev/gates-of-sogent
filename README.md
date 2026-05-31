@@ -31,7 +31,7 @@ The current version focuses on hero generation, a simple gate-run loop, and a mi
 Contract version:
 
 ```text
-0.3.0-market-gate-forge
+0.4.0-llm-gate
 ```
 
 Included:
@@ -51,9 +51,103 @@ Included:
 - Mobile movement controls
 - In-world labels and action feedback
 - On-chain gate run start/resolve
+- Somnia LLM Inference gate decisions
 - Banked shard tracking
 - Basic weapon crafting hook
 - Live event log
+
+## Contract Testing
+
+Foundry config and tests are included so contract logic can be tested without Remix.
+
+Fast local tests mock the Somnia Agents platform contract at the real testnet address:
+
+```text
+SomniaAgents: 0x037Bb9C718F3f7fe5eCBDB0b600D607b52706776
+AgentRegistry: 0x08D1Fc808f1983d2Ea7B63a28ECD4d8C885Cd02A
+JSON API Agent ID: 13174292974160097713
+LLM Inference Agent ID: 12847293847561029384
+```
+
+Run local tests in Docker:
+
+```bash
+./tools/foundry-docker.sh
+```
+
+This uses the local `node:20.19-bookworm` Docker image, copies the repo into `/tmp` inside the container, installs pinned Foundry npm packages there, and runs `forge` without touching host `node_modules`.
+
+The pinned npm packages are:
+
+```text
+@foundry-rs/forge@1.7.1
+@foundry-rs/anvil@1.7.1
+@foundry-rs/cast@1.7.1
+```
+
+Run against a Somnia fork in Docker:
+
+```bash
+SOMNIA_RPC_URL=https://dream-rpc.somnia.network/
+./tools/foundry-docker.sh test --fork-url $SOMNIA_RPC_URL
+```
+
+Deploy to Somnia Testnet:
+
+```bash
+cp .env.example .env
+# fill PRIVATE_KEY in .env
+source .env
+./tools/foundry-docker.sh forge script script/DeployGatesOfSogentMarketGame.s.sol \
+  --rpc-url $SOMNIA_RPC_URL \
+  --broadcast \
+  --legacy \
+  --gas-estimate-multiplier 2000
+```
+
+Somnia deployment gas is higher than Foundry estimates for this contract. The LLM-enabled deployment used a high gas estimate multiplier so the broadcast transaction had enough gas.
+
+Request a live Somnia Agent hero generation:
+
+```bash
+source .env
+./tools/foundry-docker.sh cast call $GAME_ADDRESS "requiredTotalFee()(uint256)" --rpc-url $SOMNIA_RPC_URL
+./tools/foundry-docker.sh cast-send-private $GAME_ADDRESS "requestHero(string)" "$HERO_NAME" \
+  --value 360000000000000000 \
+  --rpc-url $SOMNIA_RPC_URL \
+  --legacy \
+  --gas-limit 12000000
+```
+
+The `--value` above is the current testnet fee returned by `requiredTotalFee()`. If the call returns a different first integer later, use that value.
+
+Start a live gate run for hero `1`:
+
+```bash
+source .env
+./tools/foundry-docker.sh cast-send-private $GAME_ADDRESS "startGateRun(uint256)" 1 \
+  --rpc-url $SOMNIA_RPC_URL \
+  --legacy \
+  --gas-limit 5000000
+```
+
+Request a live LLM gate decision for hero `1`:
+
+```bash
+source .env
+./tools/foundry-docker.sh cast call $GAME_ADDRESS "requiredGateDecisionFee()(uint256)" --rpc-url $SOMNIA_RPC_URL
+./tools/foundry-docker.sh cast-send-private $GAME_ADDRESS "requestGateDecision(uint256)" 1 \
+  --value 240000000000000000 \
+  --rpc-url $SOMNIA_RPC_URL \
+  --legacy \
+  --gas-limit 12000000
+```
+
+The `--value` above is the current testnet fee returned by `requiredGateDecisionFee()`. If the call returns a different first integer later, use that value.
+
+Local tests are instant because the agent callback is mocked. Live Somnia Testnet requests are still asynchronous because validators must fetch the market data and call the contract back.
+
+The LLM gate flow is also asynchronous. The LLM returns `CONTINUE` or `RETURN`, then the contract resolves combat, HP, loot, and whether continuing is actually valid.
 
 ## Frontend
 

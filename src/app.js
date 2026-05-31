@@ -71,6 +71,7 @@ const elements = {
       contractVersion: "Unknown",
       gateSupport: false,
       forgeSupport: false,
+      llmGateSupport: false,
       message: "Paste the deployed game contract to use Somnia.",
       pendingRequests: [],
       busy: false,
@@ -236,6 +237,7 @@ const elements = {
         state.connection.contractVersion = "Unknown";
         state.connection.gateSupport = false;
         state.connection.forgeSupport = false;
+        state.connection.llmGateSupport = false;
         state.forgeCost = WEAPON_SHARD_COST;
         state.connection.pendingRequests = [];
         state.connection.message = "Wallet account changed. Connect again to continue on Somnia.";
@@ -251,6 +253,7 @@ const elements = {
         state.connection.contractVersion = "Unknown";
         state.connection.gateSupport = false;
         state.connection.forgeSupport = false;
+        state.connection.llmGateSupport = false;
         state.forgeCost = WEAPON_SHARD_COST;
         state.connection.pendingRequests = [];
         state.connection.message = "Wallet left Somnia Testnet. Connect again after switching back.";
@@ -997,7 +1000,12 @@ const elements = {
       }
       const run = adapter.getRun(hero.id);
       state.connection.busy = true;
-      state.connection.message = run?.active ? "Resolving gate floor..." : "Starting gate run...";
+      state.connection.message =
+        run?.active && state.connection.mode === "somnia" && adapter.llmGateSupport
+          ? "Requesting LLM gate decision..."
+          : run?.active
+            ? "Resolving gate floor..."
+            : "Starting gate run...";
       renderAll();
       try {
         const result = run?.active ? await adapter.resolveGateStep(hero) : await adapter.enterGate(hero.id, hero.name);
@@ -1097,15 +1105,27 @@ const elements = {
   }
 
   function renderConnection() {
-    const { mode, wallet, contractAddress, contractVersion, gateSupport, forgeSupport, message, busy, pendingRequests } =
-      state.connection;
+    const {
+      mode,
+      wallet,
+      contractAddress,
+      contractVersion,
+      gateSupport,
+      forgeSupport,
+      llmGateSupport,
+      message,
+      busy,
+      pendingRequests,
+    } = state.connection;
     elements.connectionMode.textContent = mode === "somnia" ? "Somnia Contract" : "Simulation";
     elements.walletShort.textContent = wallet ? shortAddress(wallet) : "Not connected";
     elements.contractStatus.textContent = contractAddress ? shortAddress(contractAddress) : "No address set";
     elements.contractVersion.textContent = contractVersion;
     elements.nextHook.textContent =
-      mode === "somnia" && gateSupport && forgeSupport
-        ? "requestHero + gateRun + forge"
+      mode === "somnia" && gateSupport && forgeSupport && llmGateSupport
+        ? "requestHero + LLM gate + forge"
+        : mode === "somnia" && gateSupport && forgeSupport
+          ? "requestHero + gateRun + forge"
         : mode === "somnia" && gateSupport
           ? "requestHero + gateRun"
           : mode === "somnia"
@@ -1177,6 +1197,7 @@ const elements = {
       state.connection.contractVersion = contractAdapter.contractVersion;
       state.connection.gateSupport = contractAdapter.gateSupport;
       state.connection.forgeSupport = contractAdapter.forgeSupport;
+      state.connection.llmGateSupport = contractAdapter.llmGateSupport;
       state.forgeCost = contractAdapter.forgeCost || WEAPON_SHARD_COST;
       state.connection.message = "Connected. Recruiter, Gate Warden, and Blacksmith now submit Somnia transactions.";
       localStorage.setItem(STORAGE_CONTRACT_ADDRESS, contractAdapter.contractAddress);
@@ -1201,6 +1222,7 @@ const elements = {
       state.connection.contractVersion = "Unknown";
       state.connection.gateSupport = false;
       state.connection.forgeSupport = false;
+      state.connection.llmGateSupport = false;
       state.forgeCost = WEAPON_SHARD_COST;
     } finally {
       state.connection.busy = false;
@@ -1215,6 +1237,7 @@ const elements = {
     state.connection.contractVersion = "Unknown";
     state.connection.gateSupport = false;
     state.connection.forgeSupport = false;
+    state.connection.llmGateSupport = false;
     state.forgeCost = WEAPON_SHARD_COST;
     state.connection.message = "Simulation adapter active. Wallet calls are paused.";
     state.connection.pendingRequests = [];

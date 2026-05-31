@@ -60,14 +60,27 @@ interface IJsonApiAgent {
     ) external returns (uint256);
 }
 
+interface ILLMAgent {
+    function inferString(
+        string calldata prompt,
+        string calldata system,
+        bool chainOfThought,
+        string[] calldata allowedValues
+    ) external returns (string memory);
+}
+
 /// @title GatesOfSogentMarketGame
 /// @notice Base prototype: Somnia JSON API Agent fetches market data used to generate hero traits.
 contract GatesOfSogentMarketGame {
-    string public constant GAME_VERSION = "0.3.0-market-gate-forge";
+    string public constant GAME_VERSION = "0.4.0-llm-gate";
     uint256 public constant SOMNIA_TESTNET_CHAIN_ID = 50312;
+    uint8 public constant REQUEST_MARKET = 1;
+    uint8 public constant REQUEST_GATE_DECISION = 2;
     uint256 public constant JSON_API_AGENT_ID = 13174292974160097713;
+    uint256 public constant LLM_INFERENCE_AGENT_ID = 12847293847561029384;
     uint256 public constant SUBCOMMITTEE_SIZE = 3;
     uint256 public constant JSON_FETCH_COST_PER_AGENT = 0.03 ether;
+    uint256 public constant LLM_COST_PER_AGENT = 0.07 ether;
     uint256 public constant WEAPON_SHARD_COST = 25;
 
     string public constant MARKET_URL =
@@ -118,8 +131,11 @@ contract GatesOfSogentMarketGame {
     mapping(address => uint256) public craftedWeapons;
     mapping(uint256 => PendingHero) public pendingHeroes;
     mapping(uint256 => bool) public pendingRequests;
+    mapping(uint256 => uint8) public requestKind;
     mapping(uint256 => uint256) public requestToMarketId;
     mapping(uint256 => uint256) public requestToGroupId;
+    mapping(uint256 => bool) public pendingGateDecision;
+    mapping(uint256 => string) public lastGateDecision;
     mapping(address => uint256[]) private ownerHeroes;
 
     event HeroRequested(uint256 indexed groupId, address indexed owner, string name);
@@ -141,6 +157,8 @@ contract GatesOfSogentMarketGame {
     );
     event AgentRequestFailed(uint256 indexed requestId, uint256 indexed groupId, ResponseStatus status);
     event GateRunStarted(uint256 indexed heroId, address indexed owner, uint16 hp);
+    event GateDecisionRequested(uint256 indexed requestId, uint256 indexed heroId, address indexed owner);
+    event GateDecisionReceived(uint256 indexed requestId, uint256 indexed heroId, string decision);
     event GateFloorResolved(
         uint256 indexed heroId,
         address indexed owner,
@@ -166,6 +184,10 @@ contract GatesOfSogentMarketGame {
         return requiredFee() * MARKET_COUNT;
     }
 
+    function requiredGateDecisionFee() public view returns (uint256) {
+        return SOMNIA_AGENTS.getRequestDeposit() + (LLM_COST_PER_AGENT * SUBCOMMITTEE_SIZE);
+    }
+
     function contractVersion() external pure returns (string memory) {
         return GAME_VERSION;
     }
@@ -175,6 +197,10 @@ contract GatesOfSogentMarketGame {
     }
 
     function supportsForge() external pure returns (bool) {
+        return true;
+    }
+
+    function supportsLLMGateDecisions() external pure returns (bool) {
         return true;
     }
 
@@ -217,6 +243,87 @@ contract GatesOfSogentMarketGame {
 
         pendingRequests[requestId] = false;
 
+        uint8 kind = requestKind[requestId];
+        if (kind == REQUEST_GATE_DECISION) {
+            _handleGateDecisionResponse(requestId, responses, status);
+            return;
+        }
+
+        require(kind == REQUEST_MARKET, "Unknown request kind");
+        _handleMarketResponse(requestId, responses, status);
+    }
+
+    function getOwnerHeroes(address owner) external view returns (uint256[] memory) {
+        return ownerHeroes[owner];
+    }
+
+    function startGateRun(uint256 heroId) external onlySomniaTestnet {
+        Hero storage hero = heroes[heroId];
+        require(hero.owner == msg.sender, "Not hero owner");
+        require(!gateRuns[heroId].active, "Gate already active");
+
+        gateRuns[heroId] = GateRun({active: true, floor: 1, hp: 100, loot: 0});
+
+        emit GateRunStarted(heroId, msg.sender, 100);
+    }
+
+    function requestGateDecision(uint256 heroId) external payable onlySomniaTestnet returns (uint256 requestId) {
+        Hero storage hero = heroes[heroId];
+        require(hero.owner == msg.sender, "Not hero owner");
+
+        GateRun storage run = gateRuns[heroId];
+        require(run.active, "No active gate");
+        require(!pendingGateDecision[heroId], "Decision pending");
+
+        uint256 fee = requiredGateDecisionFee();
+        require(msg.value == fee, "Send exact LLM fee");
+
+        bytes memory payload = abi.encodeWithSelector(
+            ILLMAgent.inferString.selector,
+            _gateDecisionPrompt(heroId),
+            _gateDecisionSystem(),
+            false,
+            _allowedGateDecisions()
+        );
+
+        requestId = SOMNIA_AGENTS.createRequest{value: fee}(
+            LLM_INFERENCE_AGENT_ID,
+            address(this),
+            this.handleResponse.selector,
+            payload
+        );
+
+        pendingRequests[requestId] = true;
+        requestKind[requestId] = REQUEST_GATE_DECISION;
+        requestToGroupId[requestId] = heroId;
+        pendingGateDecision[heroId] = true;
+
+        emit GateDecisionRequested(requestId, heroId, msg.sender);
+    }
+
+    function resolveGateFloor(uint256 heroId) external onlySomniaTestnet {
+        Hero storage hero = heroes[heroId];
+        require(hero.owner == msg.sender, "Not hero owner");
+        require(!pendingGateDecision[heroId], "Decision pending");
+
+        _resolveGateFloor(heroId, "", false);
+    }
+
+    function craftWeapon() external onlySomniaTestnet returns (uint256 weaponId) {
+        require(shards[msg.sender] >= WEAPON_SHARD_COST, "Need more shards");
+
+        shards[msg.sender] -= WEAPON_SHARD_COST;
+        craftedWeapons[msg.sender]++;
+        weaponId = craftedWeapons[msg.sender];
+
+        emit WeaponCrafted(msg.sender, weaponId, WEAPON_SHARD_COST);
+    }
+
+    function _handleMarketResponse(
+        uint256 requestId,
+        Response[] memory responses,
+        ResponseStatus status
+    ) private {
         uint256 groupId = requestToGroupId[requestId];
 
         if (status != ResponseStatus.Success || responses.length == 0) {
@@ -242,24 +349,29 @@ contract GatesOfSogentMarketGame {
         }
     }
 
-    function getOwnerHeroes(address owner) external view returns (uint256[] memory) {
-        return ownerHeroes[owner];
+    function _handleGateDecisionResponse(
+        uint256 requestId,
+        Response[] memory responses,
+        ResponseStatus status
+    ) private {
+        uint256 heroId = requestToGroupId[requestId];
+        pendingGateDecision[heroId] = false;
+
+        if (status != ResponseStatus.Success || responses.length == 0) {
+            emit AgentRequestFailed(requestId, heroId, status);
+            return;
+        }
+
+        string memory decision = abi.decode(responses[0].result, (string));
+        lastGateDecision[heroId] = decision;
+
+        emit GateDecisionReceived(requestId, heroId, decision);
+
+        _resolveGateFloor(heroId, decision, true);
     }
 
-    function startGateRun(uint256 heroId) external onlySomniaTestnet {
+    function _resolveGateFloor(uint256 heroId, string memory decision, bool hasDecision) private {
         Hero storage hero = heroes[heroId];
-        require(hero.owner == msg.sender, "Not hero owner");
-        require(!gateRuns[heroId].active, "Gate already active");
-
-        gateRuns[heroId] = GateRun({active: true, floor: 1, hp: 100, loot: 0});
-
-        emit GateRunStarted(heroId, msg.sender, 100);
-    }
-
-    function resolveGateFloor(uint256 heroId) external onlySomniaTestnet {
-        Hero storage hero = heroes[heroId];
-        require(hero.owner == msg.sender, "Not hero owner");
-
         GateRun storage run = gateRuns[heroId];
         require(run.active, "No active gate");
 
@@ -271,7 +383,7 @@ contract GatesOfSogentMarketGame {
             run.hp = 0;
             run.loot = 0;
             run.active = false;
-            emit GateFloorResolved(heroId, msg.sender, floor, run.hp, run.loot, run.active, "DEFEATED");
+            emit GateFloorResolved(heroId, hero.owner, floor, run.hp, run.loot, run.active, "DEFEATED");
             return;
         }
 
@@ -280,30 +392,44 @@ contract GatesOfSogentMarketGame {
 
         if (run.hp < 34 && hero.bravery < 70) {
             run.active = false;
-            _bankShards(msg.sender, run.loot);
-            emit GateFloorResolved(heroId, msg.sender, floor, run.hp, run.loot, run.active, "RETREATED");
+            _bankShards(hero.owner, run.loot);
+            emit GateFloorResolved(heroId, hero.owner, floor, run.hp, run.loot, run.active, "RETREATED");
             return;
         }
 
-        if (_continuesDeeper(hero.bravery, hero.greed, hero.wisdom, run.hp, roll)) {
+        bool wantsContinue = hasDecision ? _isContinueDecision(decision) : _continuesDeeper(
+            hero.bravery,
+            hero.greed,
+            hero.wisdom,
+            run.hp,
+            roll
+        );
+
+        if (wantsContinue && _continuesDeeper(hero.bravery, hero.greed, hero.wisdom, run.hp, roll)) {
             run.floor = floor + 1;
-            emit GateFloorResolved(heroId, msg.sender, floor, run.hp, run.loot, run.active, "CONTINUED");
+            emit GateFloorResolved(
+                heroId,
+                hero.owner,
+                floor,
+                run.hp,
+                run.loot,
+                run.active,
+                hasDecision ? "LLM_CONTINUED" : "CONTINUED"
+            );
             return;
         }
 
         run.active = false;
-        _bankShards(msg.sender, run.loot);
-        emit GateFloorResolved(heroId, msg.sender, floor, run.hp, run.loot, run.active, "RETURNED");
-    }
-
-    function craftWeapon() external onlySomniaTestnet returns (uint256 weaponId) {
-        require(shards[msg.sender] >= WEAPON_SHARD_COST, "Need more shards");
-
-        shards[msg.sender] -= WEAPON_SHARD_COST;
-        craftedWeapons[msg.sender]++;
-        weaponId = craftedWeapons[msg.sender];
-
-        emit WeaponCrafted(msg.sender, weaponId, WEAPON_SHARD_COST);
+        _bankShards(hero.owner, run.loot);
+        emit GateFloorResolved(
+            heroId,
+            hero.owner,
+            floor,
+            run.hp,
+            run.loot,
+            run.active,
+            hasDecision && wantsContinue ? "LLM_BLOCKED_RETURNED" : hasDecision ? "LLM_RETURNED" : "RETURNED"
+        );
     }
 
     function _requestMarket(
@@ -327,6 +453,7 @@ contract GatesOfSogentMarketGame {
         );
 
         pendingRequests[requestId] = true;
+        requestKind[requestId] = REQUEST_MARKET;
         requestToGroupId[requestId] = groupId;
         requestToMarketId[requestId] = marketId;
 
@@ -472,6 +599,67 @@ contract GatesOfSogentMarketGame {
         if (bravery > 58 && hp > 24) return true;
         if (wisdom > 72 && hp > 40) return true;
         return false;
+    }
+
+    function _isContinueDecision(string memory decision) private pure returns (bool) {
+        return keccak256(bytes(decision)) == keccak256(bytes("CONTINUE"));
+    }
+
+    function _allowedGateDecisions() private pure returns (string[] memory allowedValues) {
+        allowedValues = new string[](2);
+        allowedValues[0] = "CONTINUE";
+        allowedValues[1] = "RETURN";
+    }
+
+    function _gateDecisionSystem() private pure returns (string memory) {
+        return
+            "You are a deterministic RPG hero agent. Return only CONTINUE or RETURN. "
+            "CONTINUE means risk the next floor. RETURN means bank current loot.";
+    }
+
+    function _gateDecisionPrompt(uint256 heroId) private view returns (string memory) {
+        Hero storage hero = heroes[heroId];
+        GateRun storage run = gateRuns[heroId];
+
+        return
+            string.concat(
+                "Hero ",
+                hero.name,
+                " is inside the Gate of Sogents. Decide one action. Floor ",
+                _toString(run.floor),
+                ". HP ",
+                _toString(run.hp),
+                ". Loot ",
+                _toString(run.loot),
+                ". Bravery ",
+                _toString(hero.bravery),
+                ". Greed ",
+                _toString(hero.greed),
+                ". Wisdom ",
+                _toString(hero.wisdom),
+                ". Reply with CONTINUE or RETURN only."
+            );
+    }
+
+    function _toString(uint256 value) private pure returns (string memory) {
+        if (value == 0) return "0";
+
+        uint256 temp = value;
+        uint256 digits;
+        while (temp != 0) {
+            digits++;
+            temp /= 10;
+        }
+
+        bytes memory buffer = new bytes(digits);
+        bytes memory symbols = "0123456789";
+        while (value != 0) {
+            digits -= 1;
+            buffer[digits] = symbols[value % 10];
+            value /= 10;
+        }
+
+        return string(buffer);
     }
 
     receive() external payable {}
