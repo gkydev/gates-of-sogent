@@ -53,7 +53,8 @@ export const GAME_CONTRACT_ABI = [
     "event AgentRequestFailed(uint256 indexed requestId,uint256 indexed groupId,uint8 status)",
     "event GateRunStarted(uint256 indexed heroId,address indexed owner,uint16 hp)",
     "event GateDecisionRequested(uint256 indexed requestId,uint256 indexed heroId,address indexed owner)",
-    "event GateDecisionReceived(uint256 indexed requestId,uint256 indexed heroId,string decision)",
+    "event GateDecisionReceived(uint256 indexed requestId,uint256 indexed heroId,string route)",
+    "event GateAdventureNarrated(uint256 indexed requestId,uint256 indexed heroId,string route,string story)",
     "event GateFloorResolved(uint256 indexed heroId,address indexed owner,uint16 floor,uint16 hp,uint256 loot,bool active,string outcome)",
     "event ShardsBanked(address indexed owner,uint256 amount,uint256 balance)",
     "event WeaponCrafted(address indexed owner,uint256 indexed weaponId,uint256 shardCost)",
@@ -174,7 +175,7 @@ export const NPCS = [
       y: 318,
       color: 0x86b86f,
       label: "Run Gate",
-      dialogue: "The gate is open. Send a hero in, then resolve each floor from the camp.",
+      dialogue: "The gate is open. Send a hero in, then ask the LLM for a route and story.",
     },
     {
       id: "blacksmith",

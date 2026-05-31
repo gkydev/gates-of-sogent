@@ -321,6 +321,7 @@ export function SomniaContractAdapter({ contractAddress, onHeroRequested, onHero
     this.contract.removeAllListeners("GateRunStarted");
     this.contract.removeAllListeners("GateDecisionRequested");
     this.contract.removeAllListeners("GateDecisionReceived");
+    this.contract.removeAllListeners("GateAdventureNarrated");
     this.contract.removeAllListeners("GateFloorResolved");
     this.contract.removeAllListeners("ShardsBanked");
     this.contract.removeAllListeners("WeaponCrafted");
@@ -406,12 +407,21 @@ export function SomniaContractAdapter({ contractAddress, onHeroRequested, onHero
       );
     });
 
-    this.contract.on("GateDecisionReceived", (requestId, heroId, decision) => {
+    this.contract.on("GateDecisionReceived", (requestId, heroId, route) => {
       const parsedHeroId = Number(heroId);
       if (!this.runs.has(parsedHeroId)) return;
       this.onEvent(
         "system",
-        `LLM Gate Agent ${requestId.toString()} suggested ${decision} for hero ${parsedHeroId}.`,
+        `LLM Gate Agent ${requestId.toString()} returned route ${route} for hero ${parsedHeroId}.`,
+      );
+    });
+
+    this.contract.on("GateAdventureNarrated", (requestId, heroId, route, story) => {
+      const parsedHeroId = Number(heroId);
+      if (!this.runs.has(parsedHeroId)) return;
+      this.onEvent(
+        "system",
+        `Story route ${route}: ${story}`,
       );
     });
 
@@ -553,7 +563,7 @@ export function SomniaContractAdapter({ contractAddress, onHeroRequested, onHero
     if (this.llmGateSupport) {
       const fee = await this.contract.requiredGateDecisionFee();
       const tx = await this.contract.requestGateDecision(hero.id, { value: fee });
-      this.onEvent("system", `Submitted requestGateDecision(${hero.id}) to Somnia LLM: ${shortAddress(tx.hash)}.`);
+      this.onEvent("system", `Submitted adventure plan for hero ${hero.id} to Somnia LLM: ${shortAddress(tx.hash)}.`);
       await tx.wait();
       this.pendingGateDecisions.add(hero.id);
       const run = this.runs.get(hero.id);
@@ -565,7 +575,7 @@ export function SomniaContractAdapter({ contractAddress, onHeroRequested, onHero
         events: [
           {
             type: "system",
-            message: "LLM Gate Agent request confirmed. Waiting for Somnia validator callback.",
+            message: "LLM adventure request confirmed. Waiting for Somnia validator callback.",
           },
         ],
       };

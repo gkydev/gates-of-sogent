@@ -1003,18 +1003,18 @@ const elements = {
       }
       const run = adapter.getRun(hero.id);
       if (run?.active && run.pendingDecision) {
-        addEvent("system", `Waiting for the Somnia LLM callback for ${hero.name} on Floor ${run.floor}.`);
+        addEvent("system", `Waiting for the Somnia LLM adventure callback for ${hero.name}.`);
         renderAll();
         return;
       }
       state.connection.busy = true;
       state.connection.message =
         run?.active && state.connection.mode === "somnia" && adapter.llmGateSupport
-          ? "Requesting LLM gate decision..."
+          ? "Requesting LLM adventure plan..."
           : run?.active
             ? "Resolving gate floor..."
             : state.connection.mode === "somnia" && adapter.llmGateSupport
-              ? "Entering gate and requesting Floor 1 LLM decision..."
+              ? "Entering gate and requesting LLM adventure plan..."
               : "Starting gate run...";
       renderAll();
       try {
@@ -1030,7 +1030,7 @@ const elements = {
           if (activeRun?.active && (state.connection.mode !== "somnia" || adapter.llmGateSupport)) {
             state.connection.message =
               state.connection.mode === "somnia" && adapter.llmGateSupport
-                ? "Requesting Floor 1 LLM decision..."
+                ? "Requesting LLM adventure plan..."
                 : "Resolving Floor 1...";
             renderConnection();
             const result = await adapter.resolveGateStep(hero);
@@ -1039,7 +1039,7 @@ const elements = {
         }
         state.connection.message =
           state.connection.mode === "somnia" && adapter.llmGateSupport
-            ? "Gate transaction confirmed. Waiting for LLM callback."
+            ? "Gate transaction confirmed. Waiting for LLM story callback."
             : state.connection.mode === "somnia"
               ? "Gate transaction confirmed."
               : "Simulation gate action resolved.";
@@ -1638,10 +1638,10 @@ const elements = {
       return `${hero.name} is ready at camp. Enter the gate to start Floor 1.`;
     }
     if (run.active && run.pendingDecision) {
-      return `${hero.name} is waiting for the Somnia LLM Agent callback on Floor ${run.floor}. The floor will resolve when validators return the decision.`;
+      return `${hero.name} is waiting for the Somnia LLM Agent to return a route and story. The contract will resolve the adventure after the callback.`;
     }
     if (run.active) {
-      return `${hero.name} is on Floor ${run.floor} with ${run.hp} HP and ${run.loot} shards. Resolve the next floor decision.`;
+      return `${hero.name} is on Floor ${run.floor} with ${run.hp} HP and ${run.loot} shards. Ask the LLM for a route and story.`;
     }
     if (run.hp <= 0) {
       return `${hero.name} was defeated and lost temporary loot. Send them back in when you want another run.`;
@@ -1663,7 +1663,7 @@ const elements = {
 
     const run = adapter.getRun(hero.id);
     if (run?.active && run.pendingDecision) return "Waiting LLM";
-    if (run?.active && state.connection.mode === "somnia" && state.connection.llmGateSupport) return "Ask LLM";
+    if (run?.active && state.connection.mode === "somnia" && state.connection.llmGateSupport) return "Ask Story";
     return run?.active ? "Resolve Floor" : "Enter Gate";
   }
 

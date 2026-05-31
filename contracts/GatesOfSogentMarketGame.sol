@@ -1,78 +1,13 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-enum ConsensusType {
-    Majority,
-    Threshold
-}
-
-enum ResponseStatus {
-    None,
-    Pending,
-    Success,
-    Failed,
-    TimedOut
-}
-
-struct Response {
-    address validator;
-    bytes result;
-    ResponseStatus status;
-    uint256 receipt;
-    uint256 timestamp;
-    uint256 executionCost;
-}
-
-struct Request {
-    uint256 id;
-    address requester;
-    address callbackAddress;
-    bytes4 callbackSelector;
-    address[] subcommittee;
-    Response[] responses;
-    uint256 responseCount;
-    uint256 failureCount;
-    uint256 threshold;
-    uint256 createdAt;
-    uint256 deadline;
-    ResponseStatus status;
-    ConsensusType consensusType;
-    uint256 remainingBudget;
-    uint256 perAgentBudget;
-}
-
-interface IAgentRequester {
-    function createRequest(
-        uint256 agentId,
-        address callbackAddress,
-        bytes4 callbackSelector,
-        bytes calldata payload
-    ) external payable returns (uint256 requestId);
-
-    function getRequestDeposit() external view returns (uint256);
-}
-
-interface IJsonApiAgent {
-    function fetchUint(
-        string calldata url,
-        string calldata selector,
-        uint8 decimals
-    ) external returns (uint256);
-}
-
-interface ILLMAgent {
-    function inferString(
-        string calldata prompt,
-        string calldata system,
-        bool chainOfThought,
-        string[] calldata allowedValues
-    ) external returns (string memory);
-}
+import "./GateAdventureLib.sol";
+import "./SomniaAgents.sol";
 
 /// @title GatesOfSogentMarketGame
 /// @notice Base prototype: Somnia JSON API Agent fetches market data used to generate hero traits.
 contract GatesOfSogentMarketGame {
-    string public constant GAME_VERSION = "0.4.0-llm-gate";
+    string public constant GAME_VERSION = "0.5.0-llm-story";
     uint256 public constant SOMNIA_TESTNET_CHAIN_ID = 50312;
     uint8 public constant REQUEST_MARKET = 1;
     uint8 public constant REQUEST_GATE_DECISION = 2;
@@ -82,6 +17,8 @@ contract GatesOfSogentMarketGame {
     uint256 public constant JSON_FETCH_COST_PER_AGENT = 0.03 ether;
     uint256 public constant LLM_COST_PER_AGENT = 0.07 ether;
     uint256 public constant WEAPON_SHARD_COST = 25;
+    uint256 public constant MAX_ROUTE_LENGTH = GateAdventureLib.MAX_ROUTE_LENGTH;
+    uint256 public constant MAX_STORY_BYTES = GateAdventureLib.MAX_STORY_BYTES;
 
     string public constant MARKET_URL =
         "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum,somnia&vs_currencies=usd";
@@ -136,6 +73,7 @@ contract GatesOfSogentMarketGame {
     mapping(uint256 => uint256) public requestToGroupId;
     mapping(uint256 => bool) public pendingGateDecision;
     mapping(uint256 => string) public lastGateDecision;
+    mapping(uint256 => uint256) public gateRunNonce;
     mapping(address => uint256[]) private ownerHeroes;
 
     event HeroRequested(uint256 indexed groupId, address indexed owner, string name);
@@ -158,7 +96,8 @@ contract GatesOfSogentMarketGame {
     event AgentRequestFailed(uint256 indexed requestId, uint256 indexed groupId, ResponseStatus status);
     event GateRunStarted(uint256 indexed heroId, address indexed owner, uint16 hp);
     event GateDecisionRequested(uint256 indexed requestId, uint256 indexed heroId, address indexed owner);
-    event GateDecisionReceived(uint256 indexed requestId, uint256 indexed heroId, string decision);
+    event GateDecisionReceived(uint256 indexed requestId, uint256 indexed heroId, string route);
+    event GateAdventureNarrated(uint256 indexed requestId, uint256 indexed heroId, string route, string story);
     event GateFloorResolved(
         uint256 indexed heroId,
         address indexed owner,
@@ -262,6 +201,7 @@ contract GatesOfSogentMarketGame {
         require(hero.owner == msg.sender, "Not hero owner");
         require(!gateRuns[heroId].active, "Gate already active");
 
+        gateRunNonce[heroId]++;
         gateRuns[heroId] = GateRun({active: true, floor: 1, hp: 100, loot: 0});
 
         emit GateRunStarted(heroId, msg.sender, 100);
@@ -280,10 +220,10 @@ contract GatesOfSogentMarketGame {
 
         bytes memory payload = abi.encodeWithSelector(
             ILLMAgent.inferString.selector,
-            _gateDecisionPrompt(heroId),
-            _gateDecisionSystem(),
+            _gateAdventurePrompt(heroId),
+            _gateAdventureSystem(),
             false,
-            _allowedGateDecisions()
+            _emptyAllowedValues()
         );
 
         requestId = SOMNIA_AGENTS.createRequest{value: fee}(
@@ -362,12 +302,28 @@ contract GatesOfSogentMarketGame {
             return;
         }
 
-        string memory decision = abi.decode(responses[0].result, (string));
-        lastGateDecision[heroId] = decision;
+        string memory output = abi.decode(responses[0].result, (string));
+        string memory route = GateAdventureLib.normalizeRoute(output);
+        string memory story = GateAdventureLib.extractStory(output);
+        lastGateDecision[heroId] = route;
 
-        emit GateDecisionReceived(requestId, heroId, decision);
+        emit GateDecisionReceived(requestId, heroId, route);
+        emit GateAdventureNarrated(requestId, heroId, route, story);
 
-        _resolveGateFloor(heroId, decision, true);
+        _resolveGateRoute(heroId, route);
+    }
+
+    function _resolveGateRoute(uint256 heroId, string memory route) private {
+        bytes memory steps = bytes(route);
+
+        for (uint256 i = 0; i < steps.length && gateRuns[heroId].active; i++) {
+            string memory decision = steps[i] == bytes1("P") ? "CONTINUE" : "RETURN";
+            _resolveGateFloor(heroId, decision, true);
+
+            if (steps[i] == bytes1("S")) {
+                return;
+            }
+        }
     }
 
     function _resolveGateFloor(uint256 heroId, string memory decision, bool hasDecision) private {
@@ -376,8 +332,8 @@ contract GatesOfSogentMarketGame {
         require(run.active, "No active gate");
 
         uint16 floor = run.floor;
-        uint256 roll = _gateRoll(hero.seed, heroId, floor, run.hp, run.loot);
-        uint16 damage = _gateDamage(hero.bravery, hero.wisdom, hero.rarity, floor, roll);
+        uint256 roll = GateAdventureLib.roll(hero.seed, heroId, gateRunNonce[heroId], floor, run.hp, run.loot);
+        uint16 damage = GateAdventureLib.damage(hero.bravery, hero.wisdom, hero.rarity, floor, roll);
 
         if (damage >= run.hp) {
             run.hp = 0;
@@ -388,7 +344,7 @@ contract GatesOfSogentMarketGame {
         }
 
         run.hp -= damage;
-        run.loot += _gateLoot(hero.greed, hero.rarity, floor);
+        run.loot += GateAdventureLib.loot(hero.greed, hero.rarity, floor);
 
         if (run.hp < 34 && hero.bravery < 70) {
             run.active = false;
@@ -397,7 +353,7 @@ contract GatesOfSogentMarketGame {
             return;
         }
 
-        bool wantsContinue = hasDecision ? _isContinueDecision(decision) : _continuesDeeper(
+        bool wantsContinue = hasDecision ? GateAdventureLib.isContinueDecision(decision) : GateAdventureLib.continuesDeeper(
             hero.bravery,
             hero.greed,
             hero.wisdom,
@@ -405,7 +361,7 @@ contract GatesOfSogentMarketGame {
             roll
         );
 
-        if (wantsContinue && _continuesDeeper(hero.bravery, hero.greed, hero.wisdom, run.hp, roll)) {
+        if (wantsContinue && GateAdventureLib.continuesDeeper(hero.bravery, hero.greed, hero.wisdom, run.hp, roll)) {
             run.floor = floor + 1;
             emit GateFloorResolved(
                 heroId,
@@ -504,7 +460,7 @@ contract GatesOfSogentMarketGame {
         hero.ethereumPrice = pendingHero.ethereumPrice;
         hero.somniaPrice = pendingHero.somniaPrice;
         hero.classId = uint8((seed % 4) + 1);
-        hero.rarity = _rarity(seed);
+        hero.rarity = GateAdventureLib.rarity(seed);
         hero.bravery = uint8(((seed >> 16) % 100) + 1);
         hero.greed = uint8(((seed >> 32) % 100) + 1);
         hero.wisdom = uint8(((seed >> 48) % 100) + 1);
@@ -537,108 +493,80 @@ contract GatesOfSogentMarketGame {
         emit ShardsBanked(owner, amount, shards[owner]);
     }
 
-    function _rarity(uint256 seed) private pure returns (uint8) {
-        uint256 roll = seed % 100;
-
-        if (roll < 5) return 5;
-        if (roll < 15) return 4;
-        if (roll < 35) return 3;
-        if (roll < 65) return 2;
-        return 1;
+    function _emptyAllowedValues() private pure returns (string[] memory allowedValues) {
+        allowedValues = new string[](0);
     }
 
-    function _gateRoll(
-        uint256 seed,
-        uint256 heroId,
-        uint16 floor,
-        uint16 hp,
-        uint256 loot
-    ) private view returns (uint256) {
+    function _gateAdventureSystem() private pure returns (string memory) {
         return
-            uint256(
-                keccak256(
-                    abi.encodePacked(
-                        seed,
-                        heroId,
-                        floor,
-                        hp,
-                        loot,
-                        block.timestamp,
-                        blockhash(block.number - 1)
-                    )
-                )
-            ) % 100;
+            "You are the narrator and survival instinct of one RPG hero. "
+            "Return exactly two plain-text lines: ROUTE=<route> and STORY=<story>. "
+            "The route must use only P and S, max five letters, and must end with S. "
+            "P means pass deeper after this floor. S means stop after this floor and return. "
+            "The story is flavor only. Never invent exact HP, damage, loot, or rewards.";
     }
 
-    function _gateDamage(
-        uint8 bravery,
-        uint8 wisdom,
-        uint8 rarity,
-        uint16 floor,
-        uint256 roll
-    ) private pure returns (uint16) {
-        uint16 pressure = uint16(16 + (uint256(floor) * 9) + (roll % 16));
-        uint16 defense = uint16(((uint16(bravery) + uint16(wisdom)) / 8) + (uint16(rarity) * 4));
-
-        if (pressure <= defense + 3) return 3;
-        return uint16(pressure - defense);
-    }
-
-    function _gateLoot(uint8 greed, uint8 rarity, uint16 floor) private pure returns (uint256) {
-        return (uint256(floor) * 5) + (uint256(rarity) * 3) + (uint256(greed) / 16);
-    }
-
-    function _continuesDeeper(
-        uint8 bravery,
-        uint8 greed,
-        uint8 wisdom,
-        uint16 hp,
-        uint256 roll
-    ) private pure returns (bool) {
-        if (greed > 68 && roll > 32) return true;
-        if (bravery > 58 && hp > 24) return true;
-        if (wisdom > 72 && hp > 40) return true;
-        return false;
-    }
-
-    function _isContinueDecision(string memory decision) private pure returns (bool) {
-        return keccak256(bytes(decision)) == keccak256(bytes("CONTINUE"));
-    }
-
-    function _allowedGateDecisions() private pure returns (string[] memory allowedValues) {
-        allowedValues = new string[](2);
-        allowedValues[0] = "CONTINUE";
-        allowedValues[1] = "RETURN";
-    }
-
-    function _gateDecisionSystem() private pure returns (string memory) {
-        return
-            "You are a deterministic RPG hero agent. Return only CONTINUE or RETURN. "
-            "CONTINUE means risk the next floor. RETURN means bank current loot.";
-    }
-
-    function _gateDecisionPrompt(uint256 heroId) private view returns (string memory) {
+    function _gateAdventurePrompt(uint256 heroId) private view returns (string memory) {
         Hero storage hero = heroes[heroId];
         GateRun storage run = gateRuns[heroId];
 
         return
             string.concat(
-                "Hero ",
+                "Hero: ",
                 hero.name,
-                " is inside the Gate of Sogents. Decide one action. Floor ",
-                _toString(run.floor),
-                ". HP ",
-                _toString(run.hp),
-                ". Loot ",
-                _toString(run.loot),
+                ". Class ",
+                _toString(hero.classId),
+                ". Rarity ",
+                _toString(hero.rarity),
                 ". Bravery ",
                 _toString(hero.bravery),
                 ". Greed ",
                 _toString(hero.greed),
                 ". Wisdom ",
                 _toString(hero.wisdom),
-                ". Reply with CONTINUE or RETURN only."
+                ". Current floor ",
+                _toString(run.floor),
+                ". HP ",
+                _toString(run.hp),
+                ". Carried shards ",
+                _toString(run.loot),
+                ". Known floor outcomes if attempted in order: ",
+                _floorPreview(heroId),
+                " Choose a route. Cowardly heroes stop early. Greedy heroes risk more. "
+                "Wise heroes stop before likely death. Brave heroes push deeper. "
+                "Return exactly ROUTE=<route> newline STORY=<short paragraph>."
             );
+    }
+
+    function _floorPreview(uint256 heroId) private view returns (string memory preview) {
+        Hero storage hero = heroes[heroId];
+        GateRun memory run = gateRuns[heroId];
+
+        preview = "";
+        for (uint256 i = 0; i < MAX_ROUTE_LENGTH; i++) {
+            if (!run.active) break;
+
+            uint256 roll = GateAdventureLib.roll(hero.seed, heroId, gateRunNonce[heroId], run.floor, run.hp, run.loot);
+            uint16 damage = GateAdventureLib.damage(hero.bravery, hero.wisdom, hero.rarity, run.floor, roll);
+            uint256 lootGain = GateAdventureLib.loot(hero.greed, hero.rarity, run.floor);
+
+            preview = string.concat(
+                preview,
+                _toString(run.floor),
+                ". ",
+                GateAdventureLib.floorName(run.floor),
+                ": ",
+                damage >= run.hp ? "fatal damage" : string.concat(_toString(damage), " damage"),
+                ", ",
+                _toString(lootGain),
+                " shards. "
+            );
+
+            if (damage >= run.hp) break;
+            run.hp -= damage;
+            run.loot += lootGain;
+            run.floor++;
+        }
     }
 
     function _toString(uint256 value) private pure returns (string memory) {

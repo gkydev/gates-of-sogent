@@ -11,7 +11,8 @@ Recruit hero
 -> Somnia Agent fetches live market data
 -> Contract generates unique hero traits
 -> Send heroes into a simple on-chain gate run
--> Resolve floors for HP, loot, retreat, or defeat
+-> LLM Agent returns a route and story
+-> Contract resolves floors for HP, loot, retreat, or defeat
 ```
 
 Current prototype uses Somnia's JSON API Agent to fetch:
@@ -26,12 +27,12 @@ Those values are combined on-chain to create a unique hero.
 
 ## Current Scope
 
-The current version focuses on hero generation, a simple gate-run loop, and a minimal forge loop.
+The current version focuses on hero generation, LLM-narrated gate runs, and a minimal forge loop.
 
 Contract version:
 
 ```text
-0.4.0-llm-gate
+0.5.0-llm-story
 ```
 
 Included:
@@ -51,7 +52,7 @@ Included:
 - Mobile movement controls
 - In-world labels and action feedback
 - On-chain gate run start/resolve
-- Somnia LLM Inference gate decisions
+- Somnia LLM Inference route + story generation
 - Banked shard tracking
 - Basic weapon crafting hook
 - Live event log
@@ -131,7 +132,7 @@ source .env
   --gas-limit 5000000
 ```
 
-Request a live LLM gate decision for hero `1`:
+Request a live LLM adventure route and story for hero `1`:
 
 ```bash
 source .env
@@ -147,7 +148,7 @@ The `--value` above is the current testnet fee returned by `requiredGateDecision
 
 Local tests are instant because the agent callback is mocked. Live Somnia Testnet requests are still asynchronous because validators must fetch the market data and call the contract back.
 
-The LLM gate flow is also asynchronous. The LLM returns `CONTINUE` or `RETURN`, then the contract resolves combat, HP, loot, and whether continuing is actually valid.
+The LLM gate flow is also asynchronous. The LLM returns a route such as `PPS` plus a short story. The contract trusts only the route, then resolves combat, HP, loot, retreat, and defeat on-chain.
 
 ## Frontend
 

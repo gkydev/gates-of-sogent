@@ -227,7 +227,7 @@ contract GatesOfSogentMarketGameTest {
         assertMockLLMRequest(4);
     }
 
-    function testLLMGateDecisionReturnResolvesFloor() public {
+    function testLLMGateStoryRouteResolvesAdventure() public {
         requestHero("Aryn");
         fulfillMarketRequests();
 
@@ -238,14 +238,18 @@ contract GatesOfSogentMarketGameTest {
         game.requestGateDecision{value: fee}(1);
         vm.stopPrank();
 
-        mockAgents.fulfillString(4, "RETURN", ResponseStatus.Success);
+        mockAgents.fulfillString(
+            4,
+            "ROUTE=PPS\nSTORY=Aryn cut through the wolf tunnel, endured the crypt, then returned before the gate swallowed him.",
+            ResponseStatus.Success
+        );
 
         (bool active, , uint16 hp, uint256 loot) = game.gateRuns(1);
         assertEq(active, false, "run should close");
         assertTrue(hp <= 100, "hp cannot increase");
         assertTrue(loot > 0, "loot should be kept");
         assertEq(game.shards(PLAYER), loot, "loot should be banked");
-        assertStringEq(game.lastGateDecision(1), "RETURN", "wrong stored llm decision");
+        assertStringEq(game.lastGateDecision(1), "PPS", "wrong stored llm route");
         assertEq(game.pendingGateDecision(1), false, "decision should clear");
     }
 
@@ -311,8 +315,9 @@ contract GatesOfSogentMarketGameTest {
         assertEq(callbackSelector, game.handleResponse.selector, "wrong llm callback selector");
         assertEq(value, game.requiredGateDecisionFee(), "wrong llm request fee");
         assertEq(payloadSelector(payload), ILLMAgent.inferString.selector, "wrong llm payload selector");
-        assertTrue(contains(payload, bytes("CONTINUE")), "continue missing from prompt");
-        assertTrue(contains(payload, bytes("RETURN")), "return missing from prompt");
+        assertTrue(contains(payload, bytes("ROUTE=")), "route format missing from prompt");
+        assertTrue(contains(payload, bytes("STORY=")), "story format missing from prompt");
+        assertTrue(contains(payload, bytes("Known floor outcomes")), "floor preview missing from prompt");
         assertTrue(contains(payload, bytes("Aryn")), "hero name missing from prompt");
     }
 
