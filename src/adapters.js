@@ -252,6 +252,7 @@ export function SomniaContractAdapter({ contractAddress, onHeroRequested, onHero
     this.forgeSupport = false;
     this.llmGateSupport = false;
     this.pendingGateDecisions = new Set();
+    this.seenStoryLogs = new Set();
     this.runs = new Map();
     this.shards = 0;
     this.weapons = 0;
@@ -416,13 +417,8 @@ export function SomniaContractAdapter({ contractAddress, onHeroRequested, onHero
       );
     });
 
-    this.contract.on("GateAdventureNarrated", (requestId, heroId, route, story) => {
-      const parsedHeroId = Number(heroId);
-      if (!this.runs.has(parsedHeroId)) return;
-      this.onEvent(
-        "system",
-        `Story route ${route}: ${story}`,
-      );
+    this.contract.on("GateAdventureNarrated", (requestId, heroId, route, story, event) => {
+      this.handleAdventureNarration(requestId, heroId, route, story, event);
     });
 
     this.contract.on("GateFloorResolved", (heroId, owner, floor, hp, loot, active, outcome) => {
@@ -499,7 +495,40 @@ export function SomniaContractAdapter({ contractAddress, onHeroRequested, onHero
       }),
     );
     await this.refreshInventory();
+    await this.loadRecentAdventureStories(ids.map((heroId) => Number(heroId)));
     return heroes;
+  };
+
+  SomniaContractAdapter.prototype.handleAdventureNarration = function handleAdventureNarration(
+    requestId,
+    heroId,
+    route,
+    story,
+    event,
+  ) {
+    const txHash = event?.log?.transactionHash || event?.transactionHash || "";
+    const logIndex = event?.log?.index ?? event?.index ?? "";
+    const key = `${txHash}:${logIndex}:${requestId.toString()}`;
+    if (this.seenStoryLogs.has(key)) return;
+    this.seenStoryLogs.add(key);
+
+    this.onEvent("reward", `Route ${route}: ${story}`);
+  };
+
+  SomniaContractAdapter.prototype.loadRecentAdventureStories = async function loadRecentAdventureStories(heroIds) {
+    if (!this.contract || heroIds.length === 0) return;
+
+    const wantedHeroes = new Set(heroIds.map((heroId) => Number(heroId)));
+    const latestBlock = await this.provider.getBlockNumber();
+    const fromBlock = Math.max(0, latestBlock - 999);
+    const filter = this.contract.filters.GateAdventureNarrated();
+    const logs = await this.contract.queryFilter(filter, fromBlock, latestBlock);
+
+    logs.forEach((log) => {
+      const heroId = Number(log.args.heroId);
+      if (!wantedHeroes.has(heroId)) return;
+      this.handleAdventureNarration(log.args.requestId, log.args.heroId, log.args.route, log.args.story, log);
+    });
   };
 
   SomniaContractAdapter.prototype.recruitHero = async function recruitHero(name) {

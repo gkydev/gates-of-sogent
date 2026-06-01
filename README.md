@@ -76,13 +76,28 @@ JSON API Agent ID: 13174292974160097713
 LLM Inference Agent ID: 12847293847561029384
 ```
 
-Run local tests in Docker:
+For repeated local testing, start the reusable Foundry container once:
+
+```bash
+./tools/foundry-dev.sh start
+./tools/foundry-dev.sh test -vvv
+```
+
+This uses the local `node:20.19-bookworm` Docker image, keeps one `gates-foundry-dev` container running, installs pinned Foundry npm packages once inside it, and runs later `forge` / `cast` commands through `docker exec`.
+
+Stop it when done:
+
+```bash
+./tools/foundry-dev.sh stop
+```
+
+For a fully fresh throwaway container, use:
 
 ```bash
 ./tools/foundry-docker.sh
 ```
 
-This uses the local `node:20.19-bookworm` Docker image, copies the repo into `/tmp` inside the container, installs pinned Foundry npm packages there, and runs `forge` without touching host `node_modules`.
+The throwaway script copies the repo into `/tmp` inside a new container, installs the same pinned Foundry npm packages there, runs `forge`, and deletes the container after exit.
 
 The pinned npm packages are:
 
@@ -96,7 +111,7 @@ Run against a Somnia fork in Docker:
 
 ```bash
 SOMNIA_RPC_URL=https://dream-rpc.somnia.network/
-./tools/foundry-docker.sh test --fork-url $SOMNIA_RPC_URL
+./tools/foundry-dev.sh test --fork-url $SOMNIA_RPC_URL
 ```
 
 Deploy to Somnia Testnet:
@@ -105,7 +120,7 @@ Deploy to Somnia Testnet:
 cp .env.example .env
 # fill PRIVATE_KEY in .env
 source .env
-./tools/foundry-docker.sh forge script script/DeployGatesOfSogentMarketGame.s.sol \
+./tools/foundry-dev.sh forge script script/DeployGatesOfSogentMarketGame.s.sol \
   --rpc-url $SOMNIA_RPC_URL \
   --broadcast \
   --legacy \
@@ -118,8 +133,8 @@ Request a live Somnia Agent hero generation:
 
 ```bash
 source .env
-./tools/foundry-docker.sh cast call $GAME_ADDRESS "requiredTotalFee()(uint256)" --rpc-url $SOMNIA_RPC_URL
-./tools/foundry-docker.sh cast-send-private $GAME_ADDRESS "requestHero(string)" "$HERO_NAME" \
+./tools/foundry-dev.sh cast call $GAME_ADDRESS "requiredTotalFee()(uint256)" --rpc-url $SOMNIA_RPC_URL
+./tools/foundry-dev.sh cast-send-private $GAME_ADDRESS "requestHero(string)" "$HERO_NAME" \
   --value 360000000000000000 \
   --rpc-url $SOMNIA_RPC_URL \
   --legacy \
@@ -132,7 +147,7 @@ Start a live gate run for hero `1`:
 
 ```bash
 source .env
-./tools/foundry-docker.sh cast-send-private $GAME_ADDRESS "startGateRun(uint256)" 1 \
+./tools/foundry-dev.sh cast-send-private $GAME_ADDRESS "startGateRun(uint256)" 1 \
   --rpc-url $SOMNIA_RPC_URL \
   --legacy \
   --gas-limit 5000000
@@ -142,8 +157,8 @@ Request a live LLM adventure route and story for hero `1`:
 
 ```bash
 source .env
-./tools/foundry-docker.sh cast call $GAME_ADDRESS "requiredGateDecisionFee()(uint256)" --rpc-url $SOMNIA_RPC_URL
-./tools/foundry-docker.sh cast-send-private $GAME_ADDRESS "requestGateDecision(uint256)" 1 \
+./tools/foundry-dev.sh cast call $GAME_ADDRESS "requiredGateDecisionFee()(uint256)" --rpc-url $SOMNIA_RPC_URL
+./tools/foundry-dev.sh cast-send-private $GAME_ADDRESS "requestGateDecision(uint256)" 1 \
   --value 240000000000000000 \
   --rpc-url $SOMNIA_RPC_URL \
   --legacy \
