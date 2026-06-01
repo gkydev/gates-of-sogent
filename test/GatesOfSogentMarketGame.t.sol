@@ -227,6 +227,27 @@ contract GatesOfSogentMarketGameTest {
         assertMockLLMRequest(4);
     }
 
+    function testStartAdventureStartsRunAndCreatesLLMRequest() public {
+        requestHero("Aryn");
+        fulfillMarketRequests();
+
+        uint256 fee = game.requiredGateDecisionFee();
+        vm.deal(PLAYER, fee);
+        vm.prank(PLAYER);
+        uint256 requestId = game.startAdventure{value: fee}(1);
+
+        assertEq(requestId, 4, "wrong llm request id");
+        (bool active, uint16 floor, uint16 hp, uint256 loot) = game.gateRuns(1);
+        assertEq(active, true, "run should be active");
+        assertTrue(floor == 1, "wrong starting floor");
+        assertTrue(hp == 100, "wrong starting hp");
+        assertEq(loot, 0, "wrong starting loot");
+        assertEq(game.pendingRequests(4), true, "llm request missing");
+        assertEq(game.pendingGateDecision(1), true, "hero decision not pending");
+
+        assertMockLLMRequest(4);
+    }
+
     function testLLMGateStoryRouteResolvesAdventure() public {
         requestHero("Aryn");
         fulfillMarketRequests();
@@ -317,7 +338,7 @@ contract GatesOfSogentMarketGameTest {
         assertEq(payloadSelector(payload), ILLMAgent.inferString.selector, "wrong llm payload selector");
         assertTrue(contains(payload, bytes("ROUTE=")), "route format missing from prompt");
         assertTrue(contains(payload, bytes("STORY=")), "story format missing from prompt");
-        assertTrue(contains(payload, bytes("Known floor outcomes")), "floor preview missing from prompt");
+        assertTrue(contains(payload, bytes("Floor facts")), "floor preview missing from prompt");
         assertTrue(contains(payload, bytes("Aryn")), "hero name missing from prompt");
     }
 

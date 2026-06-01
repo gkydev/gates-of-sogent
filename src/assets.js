@@ -1,6 +1,7 @@
 import {
   CLASS_DEFS,
   WORLD_ASSET,
+  CAMPFIRE_ASSET,
   PLAYER_SHEET_ASSET,
   NPC_SHEET_ASSET,
   PLAYER_SHEET_COLS,
@@ -13,9 +14,17 @@ import { normalizeError } from "./utils.js";
 export async function loadTextures({ addEvent } = {}) {
     const result = {
       world: await window.PIXI.Assets.load(WORLD_ASSET),
+      campfire: null,
       playerFrames: null,
       npcs: {},
     };
+
+    try {
+      result.campfire = await window.PIXI.Assets.load(CAMPFIRE_ASSET);
+      result.campfire.source.scaleMode = "nearest";
+    } catch (error) {
+      addEvent?.("danger", `Campfire asset failed to load: ${normalizeError(error)}`);
+    }
 
     try {
       result.playerFrames = await createPlayerAnimationFrames(PLAYER_SHEET_ASSET);

@@ -7,7 +7,7 @@ import "./SomniaAgents.sol";
 /// @title GatesOfSogentMarketGame
 /// @notice Base prototype: Somnia JSON API Agent fetches market data used to generate hero traits.
 contract GatesOfSogentMarketGame {
-    string public constant GAME_VERSION = "0.5.0-llm-story";
+    string public constant GAME_VERSION = "0.5.2-floor-stories";
     uint256 public constant SOMNIA_TESTNET_CHAIN_ID = 50312;
     uint8 public constant REQUEST_MARKET = 1;
     uint8 public constant REQUEST_GATE_DECISION = 2;
@@ -143,6 +143,10 @@ contract GatesOfSogentMarketGame {
         return true;
     }
 
+    function supportsOneTxAdventure() external pure returns (bool) {
+        return true;
+    }
+
     function requestHero(
         string calldata name
     ) external payable onlySomniaTestnet returns (uint256 groupId) {
@@ -199,18 +203,35 @@ contract GatesOfSogentMarketGame {
     function startGateRun(uint256 heroId) external onlySomniaTestnet {
         Hero storage hero = heroes[heroId];
         require(hero.owner == msg.sender, "Not hero owner");
-        require(!gateRuns[heroId].active, "Gate already active");
 
-        gateRunNonce[heroId]++;
-        gateRuns[heroId] = GateRun({active: true, floor: 1, hp: 100, loot: 0});
+        _startGateRun(heroId, msg.sender);
+    }
 
-        emit GateRunStarted(heroId, msg.sender, 100);
+    function startAdventure(uint256 heroId) external payable onlySomniaTestnet returns (uint256 requestId) {
+        Hero storage hero = heroes[heroId];
+        require(hero.owner == msg.sender, "Not hero owner");
+
+        _startGateRun(heroId, msg.sender);
+        requestId = _requestGateDecision(heroId, msg.sender);
     }
 
     function requestGateDecision(uint256 heroId) external payable onlySomniaTestnet returns (uint256 requestId) {
         Hero storage hero = heroes[heroId];
         require(hero.owner == msg.sender, "Not hero owner");
 
+        requestId = _requestGateDecision(heroId, msg.sender);
+    }
+
+    function _startGateRun(uint256 heroId, address owner) private {
+        require(!gateRuns[heroId].active, "Gate already active");
+
+        gateRunNonce[heroId]++;
+        gateRuns[heroId] = GateRun({active: true, floor: 1, hp: 100, loot: 0});
+
+        emit GateRunStarted(heroId, owner, 100);
+    }
+
+    function _requestGateDecision(uint256 heroId, address owner) private returns (uint256 requestId) {
         GateRun storage run = gateRuns[heroId];
         require(run.active, "No active gate");
         require(!pendingGateDecision[heroId], "Decision pending");
@@ -238,7 +259,7 @@ contract GatesOfSogentMarketGame {
         requestToGroupId[requestId] = heroId;
         pendingGateDecision[heroId] = true;
 
-        emit GateDecisionRequested(requestId, heroId, msg.sender);
+        emit GateDecisionRequested(requestId, heroId, owner);
     }
 
     function resolveGateFloor(uint256 heroId) external onlySomniaTestnet {
@@ -499,11 +520,13 @@ contract GatesOfSogentMarketGame {
 
     function _gateAdventureSystem() private pure returns (string memory) {
         return
-            "You are the narrator and survival instinct of one RPG hero. "
+            "You are a concise RPG battle narrator and survival instinct for one hero. "
             "Return exactly two plain-text lines: ROUTE=<route> and STORY=<story>. "
             "The route must use only P and S, max five letters, and must end with S. "
             "P means pass deeper after this floor. S means stop after this floor and return. "
-            "The story is flavor only. Never invent exact HP, damage, loot, or rewards.";
+            "The story must describe what happened on each chosen floor in order. "
+            "Mention the floor names from the prompt. Do not show the route letters. "
+            "Do not invent exact HP, damage, loot, or rewards.";
     }
 
     function _gateAdventurePrompt(uint256 heroId) private view returns (string memory) {
@@ -530,11 +553,14 @@ contract GatesOfSogentMarketGame {
                 _toString(run.hp),
                 ". Carried shards ",
                 _toString(run.loot),
-                ". Known floor outcomes if attempted in order: ",
+                ". Floor facts if attempted in order: ",
                 _floorPreview(heroId),
-                " Choose a route. Cowardly heroes stop early. Greedy heroes risk more. "
-                "Wise heroes stop before likely death. Brave heroes push deeper. "
-                "Return exactly ROUTE=<route> newline STORY=<short paragraph>."
+                " Choose a route using personality: cowardly heroes stop early, greedy heroes risk more, "
+                "wise heroes stop before likely death, brave heroes push deeper. "
+                "Story rules: 3 to 5 short sentences, one sentence per chosen floor. "
+                "Start each sentence with the floor name, then describe the enemy or event, "
+                "the hero reaction, and why they continued or returned. End with a complete sentence. "
+                "Return exactly ROUTE=<route> newline STORY=<floor-by-floor paragraph under 750 chars>."
             );
     }
 

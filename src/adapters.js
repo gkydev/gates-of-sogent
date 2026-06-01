@@ -251,8 +251,10 @@ export function SomniaContractAdapter({ contractAddress, onHeroRequested, onHero
     this.gateSupport = false;
     this.forgeSupport = false;
     this.llmGateSupport = false;
+    this.oneTxAdventureSupport = false;
     this.pendingGateDecisions = new Set();
     this.seenStoryLogs = new Set();
+    this.adventureStories = new Map();
     this.runs = new Map();
     this.shards = 0;
     this.weapons = 0;
@@ -302,6 +304,11 @@ export function SomniaContractAdapter({ contractAddress, onHeroRequested, onHero
       this.llmGateSupport = await this.contract.supportsLLMGateDecisions();
     } catch {
       this.llmGateSupport = false;
+    }
+    try {
+      this.oneTxAdventureSupport = await this.contract.supportsOneTxAdventure();
+    } catch {
+      this.oneTxAdventureSupport = false;
     }
     if (!this.gateSupport) {
       throw new Error("Connected contract does not support gate runs. Deploy the latest contract.");
@@ -385,6 +392,7 @@ export function SomniaContractAdapter({ contractAddress, onHeroRequested, onHero
 
     this.contract.on("GateRunStarted", (heroId, owner, hp) => {
       if (owner.toLowerCase() !== this.account.toLowerCase()) return;
+      this.adventureStories.delete(Number(heroId));
       this.runs.set(Number(heroId), {
         active: true,
         floor: 1,
@@ -512,7 +520,16 @@ export function SomniaContractAdapter({ contractAddress, onHeroRequested, onHero
     if (this.seenStoryLogs.has(key)) return;
     this.seenStoryLogs.add(key);
 
-    this.onEvent("reward", `Route ${route}: ${story}`);
+    this.adventureStories.set(Number(heroId), {
+      requestId: requestId.toString(),
+      route: route.toString(),
+      story: story.toString(),
+    });
+    this.onEvent("reward", `AI gate story ready: ${story}`);
+  };
+
+  SomniaContractAdapter.prototype.getAdventureStory = function getAdventureStory(heroId) {
+    return this.adventureStories.get(Number(heroId)) || null;
   };
 
   SomniaContractAdapter.prototype.loadRecentAdventureStories = async function loadRecentAdventureStories(heroIds) {
@@ -573,12 +590,32 @@ export function SomniaContractAdapter({ contractAddress, onHeroRequested, onHero
   };
 
   SomniaContractAdapter.prototype.enterGate = async function enterGate(heroId, heroName) {
+    if (this.llmGateSupport && this.oneTxAdventureSupport) {
+      const fee = await this.contract.requiredGateDecisionFee();
+      const tx = await this.contract.startAdventure(heroId, { value: fee });
+      this.onEvent("system", `Submitted startAdventure(${heroId}) to Somnia: ${shortAddress(tx.hash)}.`);
+      await tx.wait();
+      this.pendingGateDecisions.add(heroId);
+      await this.refreshGateRun(heroId);
+
+      return {
+        pendingDecision: true,
+        events: [
+          {
+            type: "system",
+            message: `${heroName} entered the gate and requested an LLM adventure story in one transaction.`,
+          },
+        ],
+      };
+    }
+
     const tx = await this.contract.startGateRun(heroId);
     this.onEvent("system", `Submitted startGateRun(${heroId}) to Somnia: ${shortAddress(tx.hash)}.`);
     await tx.wait();
     await this.refreshGateRun(heroId);
 
     return {
+      pendingDecision: false,
       events: [
         {
           type: "system",

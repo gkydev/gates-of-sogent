@@ -3,7 +3,7 @@ pragma solidity ^0.8.20;
 
 library GateAdventureLib {
     uint256 internal constant MAX_ROUTE_LENGTH = 5;
-    uint256 internal constant MAX_STORY_BYTES = 420;
+    uint256 internal constant MAX_STORY_BYTES = 900;
 
     function rarity(uint256 seed) internal pure returns (uint8) {
         uint256 rarityRoll = seed % 100;

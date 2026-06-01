@@ -9,6 +9,7 @@ import {
   CONTRACT_QUERY_PARAM,
   WEAPON_SHARD_COST,
   CLASS_DEFS,
+  CAMPFIRE_SCENE,
   RARITIES,
   NPCS,
   OBSTACLES,
@@ -28,6 +29,10 @@ const elements = {
     dialogueText: document.querySelector("#dialogue-text"),
     dialogueAction: document.querySelector("#dialogue-action"),
     dialogueClose: document.querySelector("#dialogue-close"),
+    storyModal: document.querySelector("#story-modal"),
+    storyTitle: document.querySelector("#story-title"),
+    storyText: document.querySelector("#story-text"),
+    storyClose: document.querySelector("#story-close"),
     recruitForm: document.querySelector("#recruit-form"),
     recruitSubmit: document.querySelector("#recruit-form button"),
     heroName: document.querySelector("#hero-name"),
@@ -65,6 +70,7 @@ const elements = {
     activeNpcId: null,
     keys: new Set(),
     touchMoves: new Set(),
+    seenStories: new Set(),
     connection: {
       mode: "simulation",
       wallet: "",
@@ -91,6 +97,15 @@ const elements = {
   let adapter = new SimulationGameAdapter();
   let pixi = null;
   let textures = {};
+  let dialogueAnimation = {
+    key: "",
+    frameId: null,
+  };
+  let storyAnimation = {
+    key: "",
+    frameId: null,
+    text: "",
+  };
 
   document.addEventListener("DOMContentLoaded", init);
 
@@ -175,6 +190,9 @@ const elements = {
 
     elements.talkButton.addEventListener("click", openNearbyDialogue);
     elements.dialogueClose.addEventListener("click", closeDialogue);
+    elements.dialogueText.addEventListener("click", finishDialogueAnimation);
+    elements.storyClose.addEventListener("click", closeStoryModal);
+    elements.storyText.addEventListener("click", finishStoryAnimation);
     elements.dialogueAction.addEventListener("click", () => {
       const npc = getActiveNpc();
       if (npc) {
@@ -294,6 +312,8 @@ const elements = {
 
     drawWorld(worldLayer);
     drawObjects(objectLayer);
+    const campfireScene = buildCampfireScene();
+    if (campfireScene) objectLayer.addChild(campfireScene);
 
     const npcSprites = new Map();
     NPCS.forEach((npc) => {
@@ -306,15 +326,17 @@ const elements = {
     playerLayer.addChild(playerSprite);
 
     const gateFx = new PIXI.Graphics();
+    const campfireFx = new PIXI.Graphics();
     const destinationMarker = new PIXI.Graphics();
     const interactRing = new PIXI.Graphics();
     const floatingLayer = new PIXI.Container();
     const playerLabel = buildWorldLabel("Wanderer", CLASS_DEFS[0].color);
     const gateStatusLabel = buildWorldLabel("Gate Dormant", 0x42d6c5);
+    const storyMarker = buildStoryMarker();
     gateStatusLabel.x = 512;
     gateStatusLabel.y = 42;
     groundFxLayer.addChild(destinationMarker, interactRing);
-    fxLayer.addChild(gateFx, playerLabel, gateStatusLabel, floatingLayer);
+    fxLayer.addChild(gateFx, campfireFx, storyMarker, playerLabel, gateStatusLabel, floatingLayer);
 
     pixi = {
       app,
@@ -322,7 +344,9 @@ const elements = {
       playerSprite,
       playerLabel,
       gateStatusLabel,
+      storyMarker,
       gateFx,
+      campfireFx,
       destinationMarker,
       interactRing,
       floatingLayer,
@@ -488,17 +512,19 @@ const elements = {
         npcAgent.scale.x = npcAgent.baseScaleX * (1 - (breath - 1) * 0.35);
         npcAgent.scale.y = npcAgent.baseScaleY * breath;
         npcAgent.rotation = sway;
-        npcAgent.y = 0;
+        npcAgent.y = npcAgent.baseY || 0;
       }
       const label = sprite.children.find((child) => child.label === "npc-label");
       if (label) {
         label.alpha = id === state.nearbyNpcId || id === state.activeNpcId ? 1 : 0.76;
-        label.y = -94;
+        label.y = label.baseY || -94;
       }
     });
     updateGateStatusLabel();
+    updateStoryMarker();
 
     drawGateFx();
+    drawCampfireFx();
     drawDestinationMarker();
     drawInteractRing();
   }
@@ -526,6 +552,47 @@ const elements = {
     }
   }
 
+  function drawCampfireFx() {
+    if (!pixi?.campfireFx) return;
+    const g = pixi.campfireFx;
+    const t = pixi.portalPulse;
+    const campfire = getCampfireFlameAnchor();
+
+    g.clear();
+    drawCampfireFlame(g, campfire.x, campfire.y, t);
+  }
+
+  function getCampfireFlameAnchor() {
+    return {
+      x: CAMPFIRE_SCENE.x + (CAMPFIRE_SCENE.flameOffsetX || 0),
+      y: CAMPFIRE_SCENE.y + (CAMPFIRE_SCENE.flameOffsetY || -44),
+    };
+  }
+
+  function drawCampfireFlame(g, x, y, t) {
+    const pulse = 0.48 + Math.sin(t * 4.2) * 0.12;
+
+    g.circle(x, y + 10, 34 + Math.sin(t * 2.7) * 4).fill({
+      color: 0xf0a94b,
+      alpha: 0.08 + pulse * 0.08,
+    });
+    g.ellipse(x, y + 8, 17, 26 + Math.sin(t * 5.4) * 4).fill({
+      color: 0xff7a1a,
+      alpha: 0.18,
+    });
+    g.ellipse(x + Math.sin(t * 3) * 3, y, 9, 18).fill({
+      color: 0xffd45a,
+      alpha: 0.24,
+    });
+
+    for (let i = 0; i < 5; i += 1) {
+      const drift = (t * 18 + i * 11) % 34;
+      const emberX = x - 16 + i * 8 + Math.sin(t * 2 + i) * 4;
+      const emberY = y - 8 - drift;
+      g.rect(emberX, emberY, 2, 4).fill({ color: 0xf0a94b, alpha: 0.28 * (1 - drift / 34) });
+    }
+  }
+
   function drawDestinationMarker() {
     if (!pixi) return;
     const g = pixi.destinationMarker;
@@ -550,15 +617,17 @@ const elements = {
     const npc = getNearbyNpc();
     if (!npc) return;
     const pulse = 0.55 + Math.sin(pixi.portalPulse * 2) * 0.18;
-    g.ellipse(npc.x, npc.y + 22, 46, 14).stroke({
+    const ringY = npc.y + (npc.hiddenSprite ? 8 : 22);
+    const markerTop = npc.y + (npc.hiddenSprite ? -42 : -74);
+    g.ellipse(npc.x, ringY, npc.hiddenSprite ? 34 : 46, npc.hiddenSprite ? 10 : 14).stroke({
       width: 3,
       color: npc.color,
       alpha: pulse,
     });
-    g.moveTo(npc.x, npc.y - 74)
-      .lineTo(npc.x + 9, npc.y - 61)
-      .lineTo(npc.x, npc.y - 48)
-      .lineTo(npc.x - 9, npc.y - 61)
+    g.moveTo(npc.x, markerTop)
+      .lineTo(npc.x + 9, markerTop + 13)
+      .lineTo(npc.x, markerTop + 26)
+      .lineTo(npc.x - 9, markerTop + 13)
       .closePath()
       .fill({ color: npc.color, alpha: 0.68 });
   }
@@ -597,6 +666,26 @@ const elements = {
 
     pixi.gateStatusLabel.text = `${run.loot} Shards Safe`;
     pixi.gateStatusLabel.style.fill = "#f0a94b";
+  }
+
+  function updateStoryMarker() {
+    if (!pixi?.storyMarker) return;
+
+    const hero = getSelectedHero();
+    const story = hero ? getUnreadAdventureStory(hero.id) : null;
+    const run = hero ? adapter.getRun(hero.id) : null;
+    const warden = NPCS.find((npc) => npc.id === "warden");
+
+    if (!story || run?.active || !warden) {
+      pixi.storyMarker.visible = false;
+      return;
+    }
+
+    pixi.storyMarker.visible = true;
+    pixi.storyMarker.x = warden.x;
+    pixi.storyMarker.y = warden.y - 112 + Math.sin(pixi.portalPulse * 3.1) * 6;
+    pixi.storyMarker.rotation = Math.sin(pixi.portalPulse * 2.4) * 0.06;
+    pixi.storyMarker.scale.set(1 + Math.sin(pixi.portalPulse * 4.2) * 0.08);
   }
 
   function spawnFloatingEvent(type, message) {
@@ -770,6 +859,19 @@ const elements = {
     }
   }
 
+  function buildCampfireScene() {
+    if (!textures.campfire) return null;
+
+    const sprite = new PIXI.Sprite(textures.campfire);
+    sprite.anchor.set(0.5, 1);
+    sprite.x = CAMPFIRE_SCENE.x;
+    sprite.y = CAMPFIRE_SCENE.y;
+    sprite.scale.set(CAMPFIRE_SCENE.scale);
+    sprite.alpha = 0.94;
+    sprite.roundPixels = true;
+    return sprite;
+  }
+
   function buildNpcSprite(npc) {
     const c = new PIXI.Container();
     c.x = npc.x;
@@ -778,16 +880,20 @@ const elements = {
     c.phase = Math.random() * Math.PI * 2;
 
     const shadow = new PIXI.Graphics();
-    shadow.ellipse(0, 4, 28, 9).fill({ color: 0x000000, alpha: 0.36 });
+    shadow.ellipse(0, 8, 28, 9).fill({ color: 0x000000, alpha: npc.hiddenSprite ? 0 : 0.36 });
 
     const npcTexture = textures.npcs?.[npc.skin || npc.id];
-    if (npcTexture) {
+    if (npc.hiddenSprite) {
+      c.addChild(shadow);
+    } else if (npcTexture) {
       const sprite = new PIXI.Sprite(npcTexture);
       sprite.label = "npc-agent";
       sprite.anchor.set(0.5, 1);
       sprite.scale.set(0.185);
       sprite.baseScaleX = 0.185;
       sprite.baseScaleY = 0.185;
+      sprite.baseY = 8;
+      sprite.y = 8;
       c.addChild(shadow, sprite);
     } else {
       const g = new PIXI.Graphics();
@@ -797,14 +903,16 @@ const elements = {
       g.rect(-20, -82, 40, 18).fill(npc.color);
       g.baseScaleX = 1;
       g.baseScaleY = 1;
+      g.baseY = 0;
       c.addChild(shadow, g);
     }
 
     const hit = new PIXI.Graphics();
-    hit.rect(-42, -96, 84, 116).fill({ color: 0xffffff, alpha: 0.001 });
+    hit.rect(-42, npc.hiddenSprite ? -62 : -96, 84, npc.hiddenSprite ? 84 : 116).fill({ color: 0xffffff, alpha: 0.001 });
     const name = buildWorldLabel(npc.tag, npc.color);
     name.label = "npc-label";
-    name.y = -92;
+    name.baseY = npc.hiddenSprite ? -48 : -92;
+    name.y = name.baseY;
     c.addChild(hit, name);
     return c;
   }
@@ -824,6 +932,24 @@ const elements = {
     label.anchor.set(0.5);
     label.resolution = 2;
     return label;
+  }
+
+  function buildStoryMarker() {
+    const marker = new PIXI.Text({
+      text: "!",
+      style: {
+        fontFamily: "Courier New",
+        fontSize: 34,
+        fontWeight: "900",
+        fill: "#f0a94b",
+        stroke: { color: "#050707", width: 6 },
+        align: "center",
+      },
+    });
+    marker.anchor.set(0.5);
+    marker.resolution = 2;
+    marker.visible = false;
+    return marker;
   }
 
   function buildPlayerSprite() {
@@ -938,6 +1064,7 @@ const elements = {
   }
 
   function getNpcApproachPoint(npc) {
+    if (npc.hiddenSprite) return { x: npc.x, y: npc.y + 46 };
     if (npc.id === "oracle") return { x: npc.x, y: npc.y + 76 };
     if (npc.id === "blacksmith") return { x: npc.x - 66, y: npc.y - 44 };
     return { x: npc.x, y: npc.y + 64 };
@@ -958,8 +1085,22 @@ const elements = {
 
   function closeDialogue() {
     state.activeNpcId = null;
+    stopDialogueAnimation();
     elements.dialogue.classList.add("is-hidden");
     renderNearby();
+  }
+
+  function openAdventureStory(hero, story) {
+    state.seenStories.add(getStoryKey(hero.id, story));
+    elements.storyTitle.textContent = `${hero.name}'s Gate Story`;
+    elements.storyModal.classList.remove("is-hidden");
+    startStoryAnimation(story.story);
+  }
+
+  function closeStoryModal() {
+    stopStoryAnimation();
+    elements.storyModal.classList.add("is-hidden");
+    renderAll();
   }
 
   async function performNpcAction(npcId) {
@@ -967,6 +1108,13 @@ const elements = {
 
     if (npcId === "recruiter") {
       await recruitHeroFromInput();
+      return;
+    }
+
+    if (npcId === "camp-mira" || npcId === "camp-brann") {
+      const npc = getActiveNpc();
+      addEvent("system", npc?.actionEvent || "The campfire crackles under the ruined wall.");
+      renderAll();
       return;
     }
 
@@ -1007,6 +1155,12 @@ const elements = {
         renderAll();
         return;
       }
+      const unreadStory = getUnreadAdventureStory(hero.id);
+      if (unreadStory && !run?.active) {
+        openAdventureStory(hero, unreadStory);
+        renderAll();
+        return;
+      }
       state.connection.busy = true;
       state.connection.message =
         run?.active && state.connection.mode === "somnia" && adapter.llmGateSupport
@@ -1027,7 +1181,7 @@ const elements = {
           events.push(...entry.events);
 
           const activeRun = adapter.getRun(hero.id);
-          if (activeRun?.active && (state.connection.mode !== "somnia" || adapter.llmGateSupport)) {
+          if (activeRun?.active && !entry.pendingDecision && (state.connection.mode !== "somnia" || adapter.llmGateSupport)) {
             state.connection.message =
               state.connection.mode === "somnia" && adapter.llmGateSupport
                 ? "Requesting LLM adventure plan..."
@@ -1123,10 +1277,126 @@ const elements = {
     const npc = getActiveNpc();
     if (!npc) return;
 
+    const text = getNpcDialogue(npc);
     elements.dialogueSpeaker.textContent = npc.name;
-    elements.dialogueText.textContent = getNpcDialogue(npc);
+    renderDialogueText(npc, text);
     elements.dialogueAction.textContent = getNpcActionLabel(npc);
     elements.dialogueAction.disabled = getNpcActionDisabled(npc);
+  }
+
+  function renderDialogueText(npc, text) {
+    const shouldAnimate = shouldAnimateDialogue(npc, text);
+    const key = `${npc.id}:${state.selectedHeroId || "none"}:${shouldAnimate ? "animated" : "plain"}:${text}`;
+    if (dialogueAnimation.key === key) return;
+
+    stopDialogueAnimation();
+    dialogueAnimation.key = key;
+
+    if (!shouldAnimate) {
+      elements.dialogueText.classList.remove("is-typing");
+      elements.dialogueText.textContent = text;
+      return;
+    }
+
+    elements.dialogueText.classList.add("is-typing");
+    elements.dialogueText.textContent = "";
+
+    const startedAt = performance.now();
+    const charsPerSecond = text.length > 220 ? 86 : 64;
+    const step = (now) => {
+      if (dialogueAnimation.key !== key) return;
+
+      const visibleChars = Math.min(text.length, Math.max(1, Math.floor(((now - startedAt) / 1000) * charsPerSecond)));
+      elements.dialogueText.textContent = text.slice(0, visibleChars);
+
+      if (visibleChars < text.length) {
+        dialogueAnimation.frameId = requestAnimationFrame(step);
+      } else {
+        dialogueAnimation.frameId = null;
+        elements.dialogueText.classList.remove("is-typing");
+      }
+    };
+
+    dialogueAnimation.frameId = requestAnimationFrame(step);
+  }
+
+  function shouldAnimateDialogue(npc, text) {
+    return npc.id === "warden" && text.includes("Route ");
+  }
+
+  function finishDialogueAnimation() {
+    if (!dialogueAnimation.frameId) return;
+
+    const key = dialogueAnimation.key;
+    const text = elements.dialogueText.textContent;
+    stopDialogueAnimation();
+    dialogueAnimation.key = key;
+    elements.dialogueText.classList.remove("is-typing");
+
+    const npc = getActiveNpc();
+    if (npc) {
+      elements.dialogueText.textContent = getNpcDialogue(npc);
+    } else {
+      elements.dialogueText.textContent = text;
+    }
+  }
+
+  function stopDialogueAnimation() {
+    if (dialogueAnimation.frameId) {
+      cancelAnimationFrame(dialogueAnimation.frameId);
+    }
+    dialogueAnimation = {
+      key: "",
+      frameId: null,
+    };
+    elements.dialogueText.classList.remove("is-typing");
+  }
+
+  function startStoryAnimation(text) {
+    stopStoryAnimation();
+    storyAnimation.key = `${Date.now()}-${text}`;
+    storyAnimation.text = text;
+    elements.storyText.classList.add("is-typing");
+    elements.storyText.textContent = "";
+
+    const key = storyAnimation.key;
+    const startedAt = performance.now();
+    const charsPerSecond = text.length > 260 ? 78 : 58;
+    const step = (now) => {
+      if (storyAnimation.key !== key) return;
+
+      const visibleChars = Math.min(text.length, Math.max(1, Math.floor(((now - startedAt) / 1000) * charsPerSecond)));
+      elements.storyText.textContent = text.slice(0, visibleChars);
+
+      if (visibleChars < text.length) {
+        storyAnimation.frameId = requestAnimationFrame(step);
+      } else {
+        storyAnimation.frameId = null;
+        elements.storyText.classList.remove("is-typing");
+      }
+    };
+
+    storyAnimation.frameId = requestAnimationFrame(step);
+  }
+
+  function finishStoryAnimation() {
+    if (!storyAnimation.frameId) return;
+
+    const text = storyAnimation.text;
+    stopStoryAnimation();
+    elements.storyText.textContent = text;
+  }
+
+  function stopStoryAnimation() {
+    if (storyAnimation.frameId) {
+      cancelAnimationFrame(storyAnimation.frameId);
+    }
+    storyAnimation = {
+      key: "",
+      frameId: null,
+      text: "",
+    };
+    elements.storyText.classList.remove("is-typing");
   }
 
   function renderNearby() {
@@ -1643,10 +1913,38 @@ const elements = {
     if (run.active) {
       return `${hero.name} is on Floor ${run.floor} with ${run.hp} HP and ${run.loot} shards. Ask the LLM for a route and story.`;
     }
+    const unreadStory = getUnreadAdventureStory(hero.id);
+    if (unreadStory) {
+      return run.hp <= 0
+        ? `${hero.name}'s gate run ended. The Warden has a new LLM story ready.`
+        : `${hero.name} returned from the gate. The Warden has a new LLM story ready.`;
+    }
     if (run.hp <= 0) {
+      const adventureStory = getAdventureStory(hero.id);
+      if (adventureStory) {
+        return `${hero.name} was defeated. The story has been recorded in the battle log.`;
+      }
       return `${hero.name} was defeated and lost temporary loot. Send them back in when you want another run.`;
     }
+    const adventureStory = getAdventureStory(hero.id);
+    if (adventureStory) {
+      return `${hero.name} returned safely with ${run.loot} shards. The story has been recorded in the battle log.`;
+    }
     return `${hero.name} returned safely with ${run.loot} shards. You can start another gate run.`;
+  }
+
+  function getAdventureStory(heroId) {
+    return adapter.getAdventureStory ? adapter.getAdventureStory(heroId) : null;
+  }
+
+  function getUnreadAdventureStory(heroId) {
+    const story = getAdventureStory(heroId);
+    if (!story || state.seenStories.has(getStoryKey(heroId, story))) return null;
+    return story;
+  }
+
+  function getStoryKey(heroId, story) {
+    return `${heroId}:${story.requestId || story.route}:${story.story}`;
   }
 
   function getNpcActionLabel(npc) {
@@ -1662,6 +1960,7 @@ const elements = {
     if (!hero) return "Recruit First";
 
     const run = adapter.getRun(hero.id);
+    if (!run?.active && getUnreadAdventureStory(hero.id)) return "See Story";
     if (run?.active && run.pendingDecision) return "Waiting LLM";
     if (run?.active && state.connection.mode === "somnia" && state.connection.llmGateSupport) return "Ask Story";
     return run?.active ? "Resolve Floor" : "Enter Gate";

@@ -12,6 +12,7 @@ export const DEFAULT_GAME_CONTRACT_ADDRESS = "0xF0045108604638ec0c4f986Ff44fCeBB
 export const STORAGE_CONTRACT_ADDRESS = "gatesOfSogent.contractAddress";
 export const CONTRACT_QUERY_PARAM = "contract";
 export const WORLD_ASSET = "./public/assets/world/sogent-camp.png";
+export const CAMPFIRE_ASSET = "./public/assets/world/campfire-companions.png";
 export const PLAYER_SHEET_ASSET = "./public/assets/sprites/player-knight-sheet-source.png";
 export const NPC_SHEET_ASSET = "./public/assets/sprites/npc-agents-sheet-source.png";
 export const PLAYER_SHEET_COLS = 3;
@@ -24,6 +25,13 @@ export const PLAYER_DIRECTION_Y_OFFSETS = {
     up: 0,
   };
 export const NPC_SHEET_IDS = ["recruiter", "oracle", "warden", "blacksmith"];
+export const CAMPFIRE_SCENE = {
+    x: 210,
+    y: 160,
+    scale: 0.18,
+    flameOffsetX: 0,
+    flameOffsetY: -44,
+  };
 
 export const GAME_CONTRACT_ABI = [
     "function requestHero(string name) external payable returns (uint256 groupId)",
@@ -31,6 +39,7 @@ export const GAME_CONTRACT_ABI = [
     "function supportsGateRuns() external pure returns (bool)",
     "function supportsForge() external pure returns (bool)",
     "function supportsLLMGateDecisions() external pure returns (bool)",
+    "function supportsOneTxAdventure() external pure returns (bool)",
     "function requiredTotalFee() external view returns (uint256)",
     "function requiredGateDecisionFee() external view returns (uint256)",
     "function WEAPON_SHARD_COST() external view returns (uint256)",
@@ -40,6 +49,7 @@ export const GAME_CONTRACT_ABI = [
     "function shards(address owner) external view returns (uint256)",
     "function craftedWeapons(address owner) external view returns (uint256)",
     "function startGateRun(uint256 heroId) external",
+    "function startAdventure(uint256 heroId) external payable returns (uint256 requestId)",
     "function requestGateDecision(uint256 heroId) external payable returns (uint256 requestId)",
     "function resolveGateFloor(uint256 heroId) external",
     "function craftWeapon() external",
@@ -156,6 +166,30 @@ export const RARITIES = {
 
 export const NPCS = [
     {
+      id: "camp-mira",
+      name: "Mira of the Ash",
+      tag: "Mira",
+      hiddenSprite: true,
+      x: 165,
+      y: 124,
+      color: 0x42d6c5,
+      label: "Listen",
+      dialogue: "The fire keeps the gate-whispers quiet. For a while.",
+      actionEvent: "Mira watches the flames and marks a safe path through the ruins.",
+    },
+    {
+      id: "camp-brann",
+      name: "Brann the Tired",
+      tag: "Brann",
+      hiddenSprite: true,
+      x: 260,
+      y: 124,
+      color: 0xf0a94b,
+      label: "Listen",
+      dialogue: "If the gate starts singing, do not answer it.",
+      actionEvent: "Brann warms his gauntlets and mutters about the last patrol.",
+    },
+    {
       id: "recruiter",
       name: "Recruiter Agent",
       tag: "Recruiter",
@@ -175,7 +209,7 @@ export const NPCS = [
       y: 318,
       color: 0x86b86f,
       label: "Run Gate",
-      dialogue: "The gate is open. Send a hero in, then ask the LLM for a route and story.",
+      dialogue: "The gate is open. One order sends your hero in and asks the LLM for a route and story.",
     },
     {
       id: "blacksmith",

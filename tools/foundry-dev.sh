@@ -4,7 +4,6 @@ set -euo pipefail
 CONTAINER="${FOUNDRY_DEV_CONTAINER:-gates-foundry-dev}"
 IMAGE="${FOUNDRY_NODE_IMAGE:-node:20.19-bookworm}"
 TOOL_ROOT="/opt/foundry-tools"
-WORK_ROOT="/tmp/work"
 
 usage() {
   cat <<'EOF'
@@ -102,10 +101,14 @@ run_tool() {
       set +a
     fi
 
-    rm -rf "'"$WORK_ROOT"'"
-    mkdir -p "'"$WORK_ROOT"'"
-    cp -a /src/. "'"$WORK_ROOT"'/"
-    cd "'"$WORK_ROOT"'"
+    work_root="$(mktemp -d /tmp/gates-foundry-work.XXXXXX)"
+    cleanup() {
+      rm -rf "$work_root"
+    }
+    trap cleanup EXIT
+
+    cp -a /src/. "$work_root"/
+    cd "$work_root"
 
     tool="$1"
     cast_send_private="$2"
