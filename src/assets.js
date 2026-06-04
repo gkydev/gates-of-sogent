@@ -3,6 +3,7 @@ import {
   WORLD_ASSET,
   ARENA_ASSET,
   CAMPFIRE_ASSET,
+  CAMPFIRE_NPC_ASSETS,
   PLAYER_SHEET_ASSET,
   NPC_SHEET_ASSET,
   PLAYER_SHEET_COLS,
@@ -18,6 +19,7 @@ export async function loadTextures({ addEvent } = {}) {
       world: await window.PIXI.Assets.load(WORLD_ASSET),
       arena: null,
       campfire: null,
+      campfireNpcs: {},
       playerFrames: null,
       npcs: {},
     };
@@ -35,6 +37,18 @@ export async function loadTextures({ addEvent } = {}) {
     } catch (error) {
       addEvent?.("danger", `Campfire asset failed to load: ${normalizeError(error)}`);
     }
+
+    await Promise.all(
+      Object.entries(CAMPFIRE_NPC_ASSETS).map(async ([id, asset]) => {
+        try {
+          const texture = await window.PIXI.Assets.load(asset);
+          texture.source.scaleMode = "nearest";
+          result.campfireNpcs[id] = texture;
+        } catch (error) {
+          addEvent?.("danger", `${id} campfire sprite failed to load: ${normalizeError(error)}`);
+        }
+      }),
+    );
 
     try {
       result.playerFrames = await createPlayerAnimationFrames(PLAYER_SHEET_ASSET);

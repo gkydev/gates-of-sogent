@@ -10,6 +10,7 @@ import {
   WEAPON_SHARD_COST,
   CLASS_DEFS,
   CAMPFIRE_SCENE,
+  CAMPFIRE_COMPANIONS,
   RARITIES,
   NPCS,
   SCENE_CONFIG,
@@ -341,6 +342,8 @@ const elements = {
     drawObjects(objectLayer);
     const campfireScene = buildCampfireScene();
     if (campfireScene) objectLayer.addChild(campfireScene);
+    const campfireCompanions = buildCampfireCompanions();
+    objectLayer.addChild(campfireCompanions);
 
     const npcSprites = new Map();
     NPCS.forEach((npc) => {
@@ -370,6 +373,7 @@ const elements = {
       npcSprites,
       worldBackground,
       campfireScene,
+      campfireCompanions,
       playerSprite,
       playerLabel,
       gateStatusLabel,
@@ -521,7 +525,11 @@ const elements = {
       if (frames[frameIndex] && animatedPlayer.texture !== frames[frameIndex]) {
         animatedPlayer.texture = frames[frameIndex];
       }
-      animatedPlayer.y = animatedPlayer.baseY + (PLAYER_DIRECTION_Y_OFFSETS[state.player.dir] || 0);
+      const idleBreath = state.player.moving ? 1 : 1 + Math.sin(pixi.portalPulse * 2.2) * 0.018;
+      const moveBob = state.player.moving ? Math.sin(Date.now() / 70) * 2 : Math.sin(pixi.portalPulse * 2.2) * 0.45;
+      animatedPlayer.scale.x = animatedPlayer.baseScaleX * (1 - (idleBreath - 1) * 0.4);
+      animatedPlayer.scale.y = animatedPlayer.baseScaleY * idleBreath;
+      animatedPlayer.y = animatedPlayer.baseY + (PLAYER_DIRECTION_Y_OFFSETS[state.player.dir] || 0) + moveBob;
     } else {
       const bob = state.player.moving ? Math.sin(Date.now() / 70) * 2 : 0;
       pixi.playerSprite.scale.x = state.player.dir === "left" ? -1 : 1;
@@ -561,6 +569,7 @@ const elements = {
     });
     updateGateStatusLabel();
     updateStoryMarker();
+    updateCampfireCompanions();
 
     drawGateFx();
     drawCampfireFx();
@@ -601,6 +610,21 @@ const elements = {
     g.clear();
     if (state.scene !== "camp") return;
     drawCampfireFlame(g, campfire.x, campfire.y, t);
+  }
+
+  function updateCampfireCompanions() {
+    if (!pixi?.campfireCompanions) return;
+    pixi.campfireCompanions.visible = state.scene === "camp";
+    if (state.scene !== "camp") return;
+
+    pixi.campfireCompanions.children.forEach((sprite) => {
+      const breath = 1 + Math.sin(pixi.portalPulse * 1.8 + sprite.phase) * 0.018;
+      const sway = Math.sin(pixi.portalPulse * 1.2 + sprite.phase) * 0.006;
+      sprite.scale.x = sprite.baseScaleX * (1 - (breath - 1) * 0.45);
+      sprite.scale.y = sprite.baseScaleY * breath;
+      sprite.y = sprite.baseY + Math.sin(pixi.portalPulse * 1.55 + sprite.phase) * 0.35;
+      sprite.rotation = sway;
+    });
   }
 
   function getCampfireFlameAnchor() {
@@ -1066,6 +1090,31 @@ const elements = {
     return sprite;
   }
 
+  function buildCampfireCompanions() {
+    const c = new PIXI.Container();
+    const sceneLeft = CAMPFIRE_SCENE.x - (CAMPFIRE_SCENE.width * CAMPFIRE_SCENE.scale) / 2;
+    const sceneTop = CAMPFIRE_SCENE.y - CAMPFIRE_SCENE.height * CAMPFIRE_SCENE.scale;
+
+    CAMPFIRE_COMPANIONS.forEach((companion) => {
+      const texture = textures.campfireNpcs?.[companion.texture];
+      if (!texture) return;
+      const sprite = new PIXI.Sprite(texture);
+      sprite.label = companion.id;
+      sprite.anchor.set(0.5, 1);
+      sprite.x = sceneLeft + (companion.sourceX + companion.width / 2) * CAMPFIRE_SCENE.scale;
+      sprite.y = sceneTop + (companion.sourceY + companion.height) * CAMPFIRE_SCENE.scale;
+      sprite.baseY = sprite.y;
+      sprite.phase = companion.phase || 0;
+      sprite.scale.set(CAMPFIRE_SCENE.scale);
+      sprite.baseScaleX = CAMPFIRE_SCENE.scale;
+      sprite.baseScaleY = CAMPFIRE_SCENE.scale;
+      sprite.roundPixels = true;
+      c.addChild(sprite);
+    });
+
+    return c;
+  }
+
   function buildNpcSprite(npc) {
     const c = new PIXI.Container();
     c.x = npc.x;
@@ -1171,6 +1220,8 @@ const elements = {
       animated.label = "animated-player";
       animated.anchor.set(0.5, 1);
       animated.scale.set(0.31);
+      animated.baseScaleX = 0.31;
+      animated.baseScaleY = 0.31;
       animated.baseY = 8;
       animated.y = 8;
 

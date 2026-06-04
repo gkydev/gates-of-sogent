@@ -14,6 +14,10 @@ export const CONTRACT_QUERY_PARAM = "contract";
 export const WORLD_ASSET = "./public/assets/world/sogent-camp.png";
 export const ARENA_ASSET = "./public/assets/world/arena/arena-ground.png";
 export const CAMPFIRE_ASSET = "./public/assets/world/campfire-companions.png";
+export const CAMPFIRE_NPC_ASSETS = {
+    mira: "./public/assets/sprites/campfire/mira.png",
+    brann: "./public/assets/sprites/campfire/brann.png",
+  };
 export const PLAYER_SHEET_ASSET = "./public/assets/sprites/player-knight-sheet-source.png";
 export const NPC_SHEET_ASSET = "./public/assets/sprites/npc-agents-sheet-source.png";
 export const STANDALONE_NPC_ASSETS = {
@@ -33,9 +37,15 @@ export const CAMPFIRE_SCENE = {
     x: 210,
     y: 160,
     scale: 0.18,
+    width: 883,
+    height: 444,
     flameOffsetX: 0,
     flameOffsetY: -44,
   };
+export const CAMPFIRE_COMPANIONS = [
+    { id: "camp-mira", texture: "mira", sourceX: 68, sourceY: 60, width: 232, height: 240, phase: 0.2 },
+    { id: "camp-brann", texture: "brann", sourceX: 540, sourceY: 0, width: 323, height: 300, phase: 1.4 },
+  ];
 
 export const GAME_CONTRACT_ABI = [
     "function requestHero(string name) external payable returns (uint256 groupId)",
