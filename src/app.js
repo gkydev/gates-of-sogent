@@ -1639,7 +1639,7 @@ const elements = {
       "camp-mira": "./public/assets/ui/dialogue-portraits/mira.png",
       "camp-brann": "./public/assets/ui/dialogue-portraits/brann.png",
       recruiter: "./public/assets/ui/dialogue-portraits/recruiter.png",
-      guildmaster: "./public/assets/ui/dialogue-portraits/guildmaster.png?v=20260604-6",
+      guildmaster: "./public/assets/ui/dialogue-portraits/guildmaster.png?v=20260604-7",
       oracle: "./public/assets/ui/dialogue-portraits/oracle.png",
       warden: "./public/assets/ui/dialogue-portraits/warden.png",
       blacksmith: "./public/assets/ui/dialogue-portraits/blacksmith.png",

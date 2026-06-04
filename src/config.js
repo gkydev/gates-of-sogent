@@ -17,7 +17,7 @@ export const CAMPFIRE_ASSET = "./public/assets/world/campfire-companions.png";
 export const PLAYER_SHEET_ASSET = "./public/assets/sprites/player-knight-sheet-source.png";
 export const NPC_SHEET_ASSET = "./public/assets/sprites/npc-agents-sheet-source.png";
 export const STANDALONE_NPC_ASSETS = {
-    guildmaster: "./public/assets/sprites/guildmaster/guildmaster.png?v=20260604-6",
+    guildmaster: "./public/assets/sprites/guildmaster/guildmaster.png?v=20260604-7",
   };
 export const PLAYER_SHEET_COLS = 3;
 export const PLAYER_SHEET_ROWS = 4;
