@@ -17,7 +17,7 @@ export const CAMPFIRE_ASSET = "./public/assets/world/campfire-companions.png";
 export const PLAYER_SHEET_ASSET = "./public/assets/sprites/player-knight-sheet-source.png";
 export const NPC_SHEET_ASSET = "./public/assets/sprites/npc-agents-sheet-source.png";
 export const STANDALONE_NPC_ASSETS = {
-    guildmaster: "./public/assets/sprites/guildmaster/guildmaster.png?v=20260604-7",
+    guildmaster: "./public/assets/sprites/guildmaster/guildmaster.png?v=20260604-11",
   };
 export const PLAYER_SHEET_COLS = 3;
 export const PLAYER_SHEET_ROWS = 4;
@@ -214,14 +214,14 @@ export const NPCS = [
       name: "Guildmaster",
       tag: "Guildmaster",
       skin: "guildmaster",
-      x: 252,
-      y: 480,
-      scale: 0.155,
-      spriteBaseY: 8,
+      x: 195,
+      y: 460,
+      scale: 0.183,
+      spriteBaseY: 28,
       shadowWidth: 26,
       shadowHeight: 8,
       ringY: 8,
-      labelY: -90,
+      labelY: -88,
       color: 0xf0a94b,
       label: "Choose Hero",
       dialogue: "The guild keeps every sworn name. Choose who carries Sogent's banner today.",
