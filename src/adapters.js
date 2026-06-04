@@ -21,7 +21,10 @@ import {
 
 export function SimulationGameAdapter() {
     this.nextHeroId = 1;
+    this.nextArenaRoomId = 1;
     this.runs = new Map();
+    this.arenaRooms = new Map();
+    this.arenaStories = new Map();
     this.shards = 0;
     this.weapons = 0;
     this.forgeCost = WEAPON_SHARD_COST;
@@ -98,7 +101,7 @@ export function SimulationGameAdapter() {
       events: [
         {
           type: "system",
-          message: `Market Agent returned BTC ${formatUsd(market.bitcoinUsd)}, ETH ${formatUsd(
+          message: `Market Oracle returned BTC ${formatUsd(market.bitcoinUsd)}, ETH ${formatUsd(
             market.ethereumUsd,
           )}, SOMI ${formatUsd(market.somniaUsd)}.`,
         },
@@ -213,6 +216,85 @@ export function SimulationGameAdapter() {
     return this.runs.get(heroId) || null;
   };
 
+  SimulationGameAdapter.prototype.createArenaRoom = function createArenaRoom(hero, stakeInput) {
+    const roomId = this.nextArenaRoomId;
+    this.nextArenaRoomId += 1;
+    const stake = Number(stakeInput || 0.01);
+    const room = {
+      id: roomId,
+      creatorHero: hero,
+      creatorHeroId: hero.id,
+      stake,
+      creatorPower: arenaPower(hero, this.weapons),
+      resolved: false,
+    };
+    this.arenaRooms.set(roomId, room);
+
+    return {
+      roomId,
+      events: [
+        {
+          type: "system",
+          message: `${hero.name} posted challenge ${roomId} with ${stake} simulated STT.`,
+        },
+      ],
+    };
+  };
+
+  SimulationGameAdapter.prototype.joinArenaRoom = function joinArenaRoom(hero, roomId) {
+    const room = this.arenaRooms.get(Number(roomId));
+    if (!room || room.resolved) {
+      throw new Error("Arena challenge is missing or already resolved.");
+    }
+    if (room.creatorHeroId === hero.id) {
+      throw new Error("Use a different hero to accept this challenge.");
+    }
+
+    const challengerPower = arenaPower(hero, this.weapons);
+    const creatorPower = room.creatorPower;
+    const totalPower = creatorPower + challengerPower;
+    const roll = Number(hash64(`${roomId}:${room.creatorHero.seed}:${hero.seed}:${Date.now()}`) % BigInt(totalPower));
+    const creatorWon = roll < creatorPower;
+    const winnerHero = creatorWon ? room.creatorHero : hero;
+    const loserHero = creatorWon ? hero : room.creatorHero;
+    const story = {
+      requestId: `sim-${roomId}`,
+      story: `${winnerHero.name} controlled the arena rhythm while ${loserHero.name} chased openings. Steel rang across the old stone circle. The stronger stance finally broke guard, and ${winnerHero.name} claimed the wager.`,
+    };
+    const fight = {
+      roomId: Number(roomId),
+      winnerHeroId: winnerHero.id,
+      loserHeroId: loserHero.id,
+      winnerHeroName: winnerHero.name,
+      loserHeroName: loserHero.name,
+      creatorPower,
+      challengerPower,
+      payout: room.stake * 2,
+    };
+
+    room.resolved = true;
+    room.challengerHero = hero;
+    room.challengerHeroId = hero.id;
+    room.challengerPower = challengerPower;
+    room.winnerHeroId = winnerHero.id;
+    this.arenaStories.set(Number(roomId), story);
+
+    return {
+      fight,
+      story,
+      events: [
+        {
+          type: "reward",
+          message: `${winnerHero.name} won challenge ${roomId}. Strength ${creatorPower} vs ${challengerPower}.`,
+        },
+      ],
+    };
+  };
+
+  SimulationGameAdapter.prototype.getArenaStory = function getArenaStory(roomId) {
+    return this.arenaStories.get(Number(roomId)) || null;
+  };
+
   SimulationGameAdapter.prototype.craftWeapon = function craftWeapon() {
     if (this.shards < this.forgeCost) {
       return {
@@ -237,11 +319,17 @@ export function SimulationGameAdapter() {
     };
   };
 
-export function SomniaContractAdapter({ contractAddress, onHeroRequested, onHeroGenerated, onAgentFailed, onEvent }) {
+  function arenaPower(hero, weaponCount = 0) {
+    if (!hero) return 0;
+    return 30 + hero.rarity * 28 + hero.bravery * 2 + hero.wisdom + Math.floor(hero.greed / 2) + Math.min(10, weaponCount) * 18;
+  }
+
+export function SomniaContractAdapter({ contractAddress, onHeroRequested, onHeroGenerated, onAgentFailed, onArenaStory, onEvent }) {
     this.contractAddress = contractAddress;
     this.onHeroRequested = onHeroRequested;
     this.onHeroGenerated = onHeroGenerated;
     this.onAgentFailed = onAgentFailed;
+    this.onArenaStory = onArenaStory;
     this.onEvent = onEvent;
     this.provider = null;
     this.signer = null;
@@ -252,9 +340,12 @@ export function SomniaContractAdapter({ contractAddress, onHeroRequested, onHero
     this.forgeSupport = false;
     this.llmGateSupport = false;
     this.oneTxAdventureSupport = false;
+    this.arenaSupport = false;
     this.pendingGateDecisions = new Set();
     this.seenStoryLogs = new Set();
+    this.seenArenaStoryLogs = new Set();
     this.adventureStories = new Map();
+    this.arenaStories = new Map();
     this.runs = new Map();
     this.shards = 0;
     this.weapons = 0;
@@ -310,6 +401,11 @@ export function SomniaContractAdapter({ contractAddress, onHeroRequested, onHero
     } catch {
       this.oneTxAdventureSupport = false;
     }
+    try {
+      this.arenaSupport = await this.contract.supportsArenaRooms();
+    } catch {
+      this.arenaSupport = false;
+    }
     if (!this.gateSupport) {
       throw new Error("Connected contract does not support gate runs. Deploy the latest contract.");
     }
@@ -333,6 +429,8 @@ export function SomniaContractAdapter({ contractAddress, onHeroRequested, onHero
     this.contract.removeAllListeners("GateFloorResolved");
     this.contract.removeAllListeners("ShardsBanked");
     this.contract.removeAllListeners("WeaponCrafted");
+    this.contract.removeAllListeners("ArenaFightResolved");
+    this.contract.removeAllListeners("ArenaFightNarrated");
 
     this.contract.on("HeroRequested", (groupId, owner, name, event) => {
       if (owner.toLowerCase() !== this.account.toLowerCase()) return;
@@ -412,7 +510,7 @@ export function SomniaContractAdapter({ contractAddress, onHeroRequested, onHero
       }
       this.onEvent(
         "system",
-        `LLM Gate Agent request ${requestId.toString()} submitted for hero ${parsedHeroId}.`,
+        `Gate omen ${requestId.toString()} opened for hero ${parsedHeroId}.`,
       );
     });
 
@@ -421,7 +519,7 @@ export function SomniaContractAdapter({ contractAddress, onHeroRequested, onHero
       if (!this.runs.has(parsedHeroId)) return;
       this.onEvent(
         "system",
-        `LLM Gate Agent ${requestId.toString()} returned route ${route} for hero ${parsedHeroId}.`,
+        `Gate omen ${requestId.toString()} returned for hero ${parsedHeroId}.`,
       );
     });
 
@@ -458,6 +556,21 @@ export function SomniaContractAdapter({ contractAddress, onHeroRequested, onHero
       if (owner.toLowerCase() !== this.account.toLowerCase()) return;
       this.weapons = Number(weaponId);
       this.onEvent("reward", `Blacksmith crafted on-chain Shard Blade ${this.weapons} for ${Number(shardCost)} shards.`);
+    });
+
+    this.contract.on(
+      "ArenaFightResolved",
+      (roomId, winner, winnerHeroId, loserHeroId, payout, creatorPower, challengerPower) => {
+        const accountWon = winner.toLowerCase() === this.account.toLowerCase();
+        this.onEvent(
+          accountWon ? "reward" : "system",
+          `Arena challenge ${roomId.toString()} resolved. Winner hero ${winnerHeroId.toString()} defeated ${loserHeroId.toString()}.`,
+        );
+      },
+    );
+
+    this.contract.on("ArenaFightNarrated", (requestId, roomId, story, event) => {
+      this.handleArenaNarration(requestId, roomId, story, event);
     });
   };
 
@@ -525,11 +638,31 @@ export function SomniaContractAdapter({ contractAddress, onHeroRequested, onHero
       route: route.toString(),
       story: story.toString(),
     });
-    this.onEvent("reward", `AI gate story ready: ${story}`);
+    this.onEvent("reward", "Gate legend ready. Speak with the Warden to read it.");
   };
 
   SomniaContractAdapter.prototype.getAdventureStory = function getAdventureStory(heroId) {
     return this.adventureStories.get(Number(heroId)) || null;
+  };
+
+  SomniaContractAdapter.prototype.handleArenaNarration = function handleArenaNarration(requestId, roomId, story, event) {
+    const txHash = event?.log?.transactionHash || event?.transactionHash || "";
+    const logIndex = event?.log?.index ?? event?.index ?? "";
+    const key = `${txHash}:${logIndex}:${requestId.toString()}`;
+    if (this.seenArenaStoryLogs.has(key)) return;
+    this.seenArenaStoryLogs.add(key);
+
+    const parsedRoomId = Number(roomId);
+    const parsedStory = {
+      requestId: requestId.toString(),
+      story: story.toString(),
+    };
+    this.arenaStories.set(parsedRoomId, parsedStory);
+    this.onArenaStory?.(parsedRoomId, parsedStory);
+  };
+
+  SomniaContractAdapter.prototype.getArenaStory = function getArenaStory(roomId) {
+    return this.arenaStories.get(Number(roomId)) || null;
   };
 
   SomniaContractAdapter.prototype.loadRecentAdventureStories = async function loadRecentAdventureStories(heroIds) {
@@ -551,7 +684,7 @@ export function SomniaContractAdapter({ contractAddress, onHeroRequested, onHero
   SomniaContractAdapter.prototype.recruitHero = async function recruitHero(name) {
     const fee = await this.contract.requiredTotalFee();
     const tx = await this.contract.requestHero(name, { value: fee });
-    this.onEvent("system", `Submitted requestHero("${name}") to Somnia: ${shortAddress(tx.hash)}.`);
+    this.onEvent("system", `Submitted recruitment rite for ${name} to Somnia: ${shortAddress(tx.hash)}.`);
     const receipt = await tx.wait();
     const request = this.extractHeroRequest(receipt, name, tx.hash);
     if (request) {
@@ -563,7 +696,7 @@ export function SomniaContractAdapter({ contractAddress, onHeroRequested, onHero
       events: [
         {
           type: "system",
-          message: "Hero request confirmed. Waiting for Somnia Agent market callbacks.",
+          message: "Recruitment rite confirmed. Waiting for market omens.",
         },
       ],
     };
@@ -603,7 +736,7 @@ export function SomniaContractAdapter({ contractAddress, onHeroRequested, onHero
         events: [
           {
             type: "system",
-            message: `${heroName} entered the gate and requested an LLM adventure story in one transaction.`,
+            message: `${heroName} entered the gate. The Warden is reading the path and writing the chronicle.`,
           },
         ],
       };
@@ -629,7 +762,7 @@ export function SomniaContractAdapter({ contractAddress, onHeroRequested, onHero
     if (this.llmGateSupport) {
       const fee = await this.contract.requiredGateDecisionFee();
       const tx = await this.contract.requestGateDecision(hero.id, { value: fee });
-      this.onEvent("system", `Submitted adventure plan for hero ${hero.id} to Somnia LLM: ${shortAddress(tx.hash)}.`);
+      this.onEvent("system", `Submitted gate omen for hero ${hero.id} to Somnia: ${shortAddress(tx.hash)}.`);
       await tx.wait();
       this.pendingGateDecisions.add(hero.id);
       const run = this.runs.get(hero.id);
@@ -641,7 +774,7 @@ export function SomniaContractAdapter({ contractAddress, onHeroRequested, onHero
         events: [
           {
             type: "system",
-            message: "LLM adventure request confirmed. Waiting for Somnia validator callback.",
+            message: "Gate omen confirmed. Waiting for the chronicle to return.",
           },
         ],
       };
@@ -706,6 +839,64 @@ export function SomniaContractAdapter({ contractAddress, onHeroRequested, onHero
             ? `Blacksmith crafted on-chain Shard Blade ${crafted.weaponId} for ${crafted.shardCost} shards.`
             : `Blacksmith crafted on-chain Shard Blade ${this.weapons}.`,
         },
+      ],
+    };
+  };
+
+  SomniaContractAdapter.prototype.createArenaRoom = async function createArenaRoom(hero, stakeInput) {
+    if (!this.arenaSupport) {
+      throw new Error("Connected contract does not support arena rooms. Deploy the latest contract.");
+    }
+    const stake = window.ethers.parseEther(String(stakeInput || "0.01"));
+    const tx = await this.contract.createArenaRoom(hero.id, { value: stake });
+    this.onEvent("system", `Submitted createArenaRoom(${hero.id}) to Somnia: ${shortAddress(tx.hash)}.`);
+    const receipt = await tx.wait();
+    const room = this.extractArenaRoomCreated(receipt);
+
+    return {
+      roomId: room?.roomId || null,
+      events: [
+        {
+          type: "system",
+          message: room
+            ? `${hero.name} posted challenge ${room.roomId} with ${window.ethers.formatEther(room.stake)} STT.`
+            : `${hero.name} posted an arena challenge on-chain.`,
+        },
+      ],
+    };
+  };
+
+  SomniaContractAdapter.prototype.joinArenaRoom = async function joinArenaRoom(hero, roomId) {
+    if (!this.arenaSupport) {
+      throw new Error("Connected contract does not support arena rooms. Deploy the latest contract.");
+    }
+    const room = await this.contract.arenaRooms(roomId);
+    const stake = room.stake ?? room[4];
+    const fee = await this.contract.requiredArenaNarrationFee();
+    const tx = await this.contract.joinArenaRoomWithNarration(roomId, hero.id, { value: stake + fee });
+    this.onEvent("system", `Submitted joinArenaRoomWithNarration(${roomId}, ${hero.id}) to Somnia: ${shortAddress(tx.hash)}.`);
+    const receipt = await tx.wait();
+    const fight = this.extractArenaFightResolved(receipt);
+    const request = this.extractArenaNarrationRequested(receipt);
+
+    return {
+      fight,
+      pendingNarration: Boolean(request),
+      events: [
+        {
+          type: fight?.winnerHeroId === hero.id ? "reward" : "system",
+          message: fight
+            ? `Arena challenge ${fight.roomId} resolved. Winner hero ${fight.winnerHeroId}. Strength ${fight.creatorPower} vs ${fight.challengerPower}.`
+            : `Arena challenge ${roomId} accepted on-chain. Waiting for events.`,
+        },
+        ...(request
+          ? [
+              {
+                type: "system",
+                message: `Arena chronicle ${request.requestId} opened for challenge ${roomId}.`,
+              },
+            ]
+          : []),
       ],
     };
   };
@@ -777,6 +968,62 @@ export function SomniaContractAdapter({ contractAddress, onHeroRequested, onHero
           owner: parsed.args.owner,
           weaponId: Number(parsed.args.weaponId),
           shardCost: Number(parsed.args.shardCost),
+        };
+      } catch {
+        // Ignore logs from other contracts in the same transaction.
+      }
+    }
+    return null;
+  };
+
+  SomniaContractAdapter.prototype.extractArenaRoomCreated = function extractArenaRoomCreated(receipt) {
+    for (const log of receipt.logs || []) {
+      try {
+        const parsed = this.contract.interface.parseLog(log);
+        if (parsed?.name !== "ArenaRoomCreated") continue;
+        if (parsed.args.creator.toLowerCase() !== this.account.toLowerCase()) continue;
+        return {
+          roomId: Number(parsed.args.roomId),
+          creator: parsed.args.creator,
+          heroId: Number(parsed.args.heroId),
+          stake: parsed.args.stake,
+        };
+      } catch {
+        // Ignore logs from other contracts in the same transaction.
+      }
+    }
+    return null;
+  };
+
+  SomniaContractAdapter.prototype.extractArenaFightResolved = function extractArenaFightResolved(receipt) {
+    for (const log of receipt.logs || []) {
+      try {
+        const parsed = this.contract.interface.parseLog(log);
+        if (parsed?.name !== "ArenaFightResolved") continue;
+        return {
+          roomId: Number(parsed.args.roomId),
+          winner: parsed.args.winner,
+          winnerHeroId: Number(parsed.args.winnerHeroId),
+          loserHeroId: Number(parsed.args.loserHeroId),
+          payout: parsed.args.payout,
+          creatorPower: Number(parsed.args.creatorPower),
+          challengerPower: Number(parsed.args.challengerPower),
+        };
+      } catch {
+        // Ignore logs from other contracts in the same transaction.
+      }
+    }
+    return null;
+  };
+
+  SomniaContractAdapter.prototype.extractArenaNarrationRequested = function extractArenaNarrationRequested(receipt) {
+    for (const log of receipt.logs || []) {
+      try {
+        const parsed = this.contract.interface.parseLog(log);
+        if (parsed?.name !== "ArenaNarrationRequested") continue;
+        return {
+          requestId: parsed.args.requestId.toString(),
+          roomId: Number(parsed.args.roomId),
         };
       } catch {
         // Ignore logs from other contracts in the same transaction.

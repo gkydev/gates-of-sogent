@@ -37,7 +37,10 @@
           </div>
 
           <section id="dialogue" class="dialogue is-hidden" aria-live="polite">
-            <div>
+            <div class="dialogue-portrait-frame" aria-hidden="true">
+              <img id="dialogue-portrait" class="dialogue-portrait" alt="" decoding="async" />
+            </div>
+            <div class="dialogue-body">
               <p id="dialogue-speaker" class="dialogue-speaker">NPC</p>
               <p id="dialogue-text" class="dialogue-text"></p>
             </div>
@@ -50,7 +53,7 @@
           <section id="story-modal" class="story-modal is-hidden" aria-live="polite">
             <div class="story-card">
               <h2 id="story-title" class="story-title">Gate Story</h2>
-              <p class="story-source">AI-generated gate report</p>
+              <p id="story-source" class="story-source">Warden's Chronicle</p>
               <p id="story-text" class="story-text"></p>
               <div class="story-actions">
                 <button id="story-close" type="button" class="quiet-button">Close</button>
@@ -90,7 +93,7 @@
 
           <section class="panel market-panel">
             <div class="panel-heading">
-              <h2>Market Agent</h2>
+              <h2>Market Oracle</h2>
               <span id="market-clock">--:--:--</span>
             </div>
             <div id="market-grid" class="market-grid"></div>
@@ -113,6 +116,35 @@
             </div>
           </section>
 
+          <section class="panel arena-panel">
+            <div class="panel-heading">
+              <h2>Arena</h2>
+              <span id="arena-room-status">No challenge</span>
+            </div>
+            <div class="arena-form">
+              <input
+                id="arena-stake"
+                type="text"
+                inputmode="decimal"
+                placeholder="Wager STT"
+                autocomplete="off"
+                spellcheck="false"
+                value="0.01"
+              />
+              <input
+                id="arena-room-id"
+                type="text"
+                inputmode="numeric"
+                placeholder="Challenge id"
+                autocomplete="off"
+                spellcheck="false"
+              />
+              <button id="arena-create" type="button">Challenge</button>
+              <button id="arena-join" type="button" class="quiet-button">Accept</button>
+            </div>
+            <p id="arena-message" class="arena-message">Walk down the lower road and talk to the Arena Master.</p>
+          </section>
+
           <section class="panel contract-panel">
             <div class="panel-heading">
               <h2>Somnia</h2>
@@ -133,7 +165,7 @@
               </div>
               <div>
                 <dt>Next Hook</dt>
-                <dd id="next-hook">requestHero(name)</dd>
+                <dd id="next-hook">recruitment rite</dd>
               </div>
             </dl>
             <div class="wallet-tools">
@@ -152,7 +184,7 @@
               <p id="wallet-message" class="wallet-message">Paste the deployed game contract to use Somnia.</p>
               <div class="chain-queue">
                 <div class="queue-heading">
-                  <span>Pending Agent Requests</span>
+                  <span>Pending Omens</span>
                   <strong id="pending-count">0</strong>
                 </div>
                 <ul id="pending-list" class="pending-list"></ul>

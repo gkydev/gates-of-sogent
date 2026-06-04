@@ -116,6 +116,7 @@ contract GatesOfSogentMarketGameTest {
     Vm private constant vm = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
     address private constant SOMNIA_AGENTS_ADDRESS = 0x037Bb9C718F3f7fe5eCBDB0b600D607b52706776;
     address private constant PLAYER = address(0xA11CE);
+    address private constant PLAYER_TWO = address(0xB0B);
 
     GatesOfSogentMarketGame private game;
     MockSomniaAgents private mockAgents;
@@ -274,6 +275,80 @@ contract GatesOfSogentMarketGameTest {
         assertEq(game.pendingGateDecision(1), false, "decision should clear");
     }
 
+    function testArenaRoomResolvesStakeFight() public {
+        requestHero("Aryn");
+        fulfillMarketRequests();
+        requestHeroFor(PLAYER_TWO, "Bryn");
+        fulfillMarketRequestsFrom(4);
+
+        uint256 stake = 1 ether;
+        vm.deal(PLAYER, stake);
+        vm.prank(PLAYER);
+        uint256 roomId = game.createArenaRoom{value: stake}(1);
+
+        vm.deal(PLAYER_TWO, stake);
+        vm.prank(PLAYER_TWO);
+        game.joinArenaRoom{value: stake}(roomId, 2);
+
+        (
+            address creator,
+            address challenger,
+            uint256 creatorHeroId,
+            uint256 challengerHeroId,
+            uint256 storedStake,
+            uint16 creatorPower,
+            uint16 challengerPower,
+            address winner,
+            uint256 winnerHeroId,
+            bool resolved
+        ) = game.arenaRooms(roomId);
+
+        assertEq(creator, PLAYER, "wrong creator");
+        assertEq(challenger, PLAYER_TWO, "wrong challenger");
+        assertEq(creatorHeroId, 1, "wrong creator hero");
+        assertEq(challengerHeroId, 2, "wrong challenger hero");
+        assertEq(storedStake, stake, "wrong stake");
+        assertTrue(creatorPower > 0, "missing creator power");
+        assertTrue(challengerPower > 0, "missing challenger power");
+        assertTrue(winner == PLAYER || winner == PLAYER_TWO, "bad winner");
+        assertTrue(winnerHeroId == 1 || winnerHeroId == 2, "bad winner hero");
+        assertEq(resolved, true, "fight should resolve");
+        assertEq(address(game).balance, 0, "stake should be paid out");
+        assertEq(PLAYER.balance + PLAYER_TWO.balance, stake * 2, "winner should receive pot");
+    }
+
+    function testArenaRoomWithNarrationCreatesLLMRequest() public {
+        requestHero("Aryn");
+        fulfillMarketRequests();
+        requestHeroFor(PLAYER_TWO, "Bryn");
+        fulfillMarketRequestsFrom(4);
+
+        uint256 stake = 1 ether;
+        vm.deal(PLAYER, stake);
+        vm.prank(PLAYER);
+        uint256 roomId = game.createArenaRoom{value: stake}(1);
+
+        uint256 fee = game.requiredArenaNarrationFee();
+        vm.deal(PLAYER_TWO, stake + fee);
+        vm.prank(PLAYER_TWO);
+        uint256 requestId = game.joinArenaRoomWithNarration{value: stake + fee}(roomId, 2);
+
+        assertEq(requestId, 7, "wrong arena llm request id");
+        assertEq(game.pendingArenaNarration(roomId), true, "narration should be pending");
+        assertEq(uint256(game.requestKind(requestId)), uint256(game.REQUEST_ARENA_NARRATION()), "wrong request kind");
+        assertEq(game.requestToGroupId(requestId), roomId, "wrong request room id");
+        assertMockArenaLLMRequest(requestId);
+
+        mockAgents.fulfillString(
+            requestId,
+            "STORY=The arena bell cracked through the ruins. Aryn and Bryn traded three brutal passes before the winner broke guard and claimed the pot.",
+            ResponseStatus.Success
+        );
+
+        assertEq(game.pendingArenaNarration(roomId), false, "narration should clear");
+        assertTrue(contains(bytes(game.lastArenaStory(roomId)), bytes("arena bell")), "story not stored");
+    }
+
     function testRequestHeroRequiresSomniaTestnetChainId() public {
         uint256 totalFee = game.requiredTotalFee();
         vm.deal(PLAYER, totalFee);
@@ -293,9 +368,13 @@ contract GatesOfSogentMarketGameTest {
     }
 
     function requestHero(string memory name) private returns (uint256 groupId) {
+        groupId = requestHeroFor(PLAYER, name);
+    }
+
+    function requestHeroFor(address player, string memory name) private returns (uint256 groupId) {
         uint256 totalFee = game.requiredTotalFee();
-        vm.deal(PLAYER, totalFee);
-        vm.prank(PLAYER);
+        vm.deal(player, totalFee);
+        vm.prank(player);
         groupId = game.requestHero{value: totalFee}(name);
     }
 
@@ -303,6 +382,12 @@ contract GatesOfSogentMarketGameTest {
         mockAgents.fulfillUint(1, 68_420_13000000, ResponseStatus.Success);
         mockAgents.fulfillUint(2, 3_740_62000000, ResponseStatus.Success);
         mockAgents.fulfillUint(3, 18_420000, ResponseStatus.Success);
+    }
+
+    function fulfillMarketRequestsFrom(uint256 firstRequestId) private {
+        mockAgents.fulfillUint(firstRequestId, 68_420_13000000, ResponseStatus.Success);
+        mockAgents.fulfillUint(firstRequestId + 1, 3_740_62000000, ResponseStatus.Success);
+        mockAgents.fulfillUint(firstRequestId + 2, 18_420000, ResponseStatus.Success);
     }
 
     function assertMockRequest(uint256 requestId, string memory expectedSelector) private view {
@@ -340,6 +425,27 @@ contract GatesOfSogentMarketGameTest {
         assertTrue(contains(payload, bytes("STORY=")), "story format missing from prompt");
         assertTrue(contains(payload, bytes("Floor facts")), "floor preview missing from prompt");
         assertTrue(contains(payload, bytes("Aryn")), "hero name missing from prompt");
+    }
+
+    function assertMockArenaLLMRequest(uint256 requestId) private view {
+        (
+            uint256 agentId,
+            address callbackAddress,
+            bytes4 callbackSelector,
+            uint256 value,
+            bytes memory payload
+        ) = mockAgents.requestRecord(requestId);
+
+        assertEq(agentId, game.LLM_INFERENCE_AGENT_ID(), "wrong llm agent id");
+        assertEq(callbackAddress, address(game), "wrong llm callback address");
+        assertEq(callbackSelector, game.handleResponse.selector, "wrong llm callback selector");
+        assertEq(value, game.requiredArenaNarrationFee(), "wrong arena llm fee");
+        assertEq(payloadSelector(payload), ILLMAgent.inferString.selector, "wrong llm payload selector");
+        assertTrue(contains(payload, bytes("STORY=")), "story format missing from prompt");
+        assertTrue(contains(payload, bytes("Arena room")), "arena room missing from prompt");
+        assertTrue(contains(payload, bytes("Winner")), "winner missing from prompt");
+        assertTrue(contains(payload, bytes("Aryn")), "creator hero missing from prompt");
+        assertTrue(contains(payload, bytes("Bryn")), "challenger hero missing from prompt");
     }
 
     function runIsActive(uint256 heroId) private view returns (bool active) {

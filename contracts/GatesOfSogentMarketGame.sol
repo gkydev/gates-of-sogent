@@ -2,6 +2,7 @@
 pragma solidity ^0.8.20;
 
 import "./GateAdventureLib.sol";
+import "./ArenaCombatLib.sol";
 import "./SomniaAgents.sol";
 
 /// @title GatesOfSogentMarketGame
@@ -11,6 +12,7 @@ contract GatesOfSogentMarketGame {
     uint256 public constant SOMNIA_TESTNET_CHAIN_ID = 50312;
     uint8 public constant REQUEST_MARKET = 1;
     uint8 public constant REQUEST_GATE_DECISION = 2;
+    uint8 public constant REQUEST_ARENA_NARRATION = 3;
     uint256 public constant JSON_API_AGENT_ID = 13174292974160097713;
     uint256 public constant LLM_INFERENCE_AGENT_ID = 12847293847561029384;
     uint256 public constant SUBCOMMITTEE_SIZE = 3;
@@ -57,7 +59,21 @@ contract GatesOfSogentMarketGame {
         uint256 loot;
     }
 
+    struct ArenaRoom {
+        address creator;
+        address challenger;
+        uint256 creatorHeroId;
+        uint256 challengerHeroId;
+        uint256 stake;
+        uint16 creatorPower;
+        uint16 challengerPower;
+        address winner;
+        uint256 winnerHeroId;
+        bool resolved;
+    }
+
     uint256 public nextHeroId = 1;
+    uint256 public nextArenaRoomId = 1;
     uint256 public latestBitcoinPrice;
     uint256 public latestEthereumPrice;
     uint256 public latestSomniaPrice;
@@ -74,6 +90,9 @@ contract GatesOfSogentMarketGame {
     mapping(uint256 => bool) public pendingGateDecision;
     mapping(uint256 => string) public lastGateDecision;
     mapping(uint256 => uint256) public gateRunNonce;
+    mapping(uint256 => ArenaRoom) public arenaRooms;
+    mapping(uint256 => bool) public pendingArenaNarration;
+    mapping(uint256 => string) public lastArenaStory;
     mapping(address => uint256[]) private ownerHeroes;
 
     event HeroRequested(uint256 indexed groupId, address indexed owner, string name);
@@ -109,6 +128,20 @@ contract GatesOfSogentMarketGame {
     );
     event ShardsBanked(address indexed owner, uint256 amount, uint256 balance);
     event WeaponCrafted(address indexed owner, uint256 indexed weaponId, uint256 shardCost);
+    event ArenaRoomCreated(uint256 indexed roomId, address indexed creator, uint256 indexed heroId, uint256 stake);
+    event ArenaRoomCancelled(uint256 indexed roomId, address indexed creator, uint256 stake);
+    event ArenaRoomJoined(uint256 indexed roomId, address indexed challenger, uint256 indexed heroId);
+    event ArenaFightResolved(
+        uint256 indexed roomId,
+        address indexed winner,
+        uint256 indexed winnerHeroId,
+        uint256 loserHeroId,
+        uint256 payout,
+        uint16 creatorPower,
+        uint16 challengerPower
+    );
+    event ArenaNarrationRequested(uint256 indexed requestId, uint256 indexed roomId);
+    event ArenaFightNarrated(uint256 indexed requestId, uint256 indexed roomId, string story);
 
     modifier onlySomniaTestnet() {
         require(block.chainid == SOMNIA_TESTNET_CHAIN_ID, "Use Somnia testnet");
@@ -189,6 +222,11 @@ contract GatesOfSogentMarketGame {
         uint8 kind = requestKind[requestId];
         if (kind == REQUEST_GATE_DECISION) {
             _handleGateDecisionResponse(requestId, responses, status);
+            return;
+        }
+
+        if (kind == REQUEST_ARENA_NARRATION) {
+            _handleArenaNarrationResponse(requestId, responses, status);
             return;
         }
 
@@ -280,6 +318,76 @@ contract GatesOfSogentMarketGame {
         emit WeaponCrafted(msg.sender, weaponId, WEAPON_SHARD_COST);
     }
 
+    function supportsArenaRooms() external pure returns (bool) {
+        return true;
+    }
+
+    function requiredArenaNarrationFee() public view returns (uint256) {
+        return requiredGateDecisionFee();
+    }
+
+    function createArenaRoom(uint256 heroId) external payable onlySomniaTestnet returns (uint256 roomId) {
+        Hero storage hero = heroes[heroId];
+        require(hero.owner == msg.sender, "Not hero owner");
+        require(msg.value > 0, "Stake required");
+
+        roomId = nextArenaRoomId;
+        nextArenaRoomId++;
+
+        arenaRooms[roomId] = ArenaRoom({
+            creator: msg.sender,
+            challenger: address(0),
+            creatorHeroId: heroId,
+            challengerHeroId: 0,
+            stake: msg.value,
+            creatorPower: _arenaPower(heroId),
+            challengerPower: 0,
+            winner: address(0),
+            winnerHeroId: 0,
+            resolved: false
+        });
+
+        emit ArenaRoomCreated(roomId, msg.sender, heroId, msg.value);
+    }
+
+    function cancelArenaRoom(uint256 roomId) external onlySomniaTestnet {
+        ArenaRoom storage room = arenaRooms[roomId];
+        require(room.creator == msg.sender, "Not room creator");
+        require(room.challenger == address(0), "Room already joined");
+        require(!room.resolved, "Room resolved");
+
+        uint256 stake = room.stake;
+        room.resolved = true;
+        room.stake = 0;
+
+        _sendValue(msg.sender, stake);
+        emit ArenaRoomCancelled(roomId, msg.sender, stake);
+    }
+
+    function joinArenaRoom(uint256 roomId, uint256 heroId) external payable onlySomniaTestnet {
+        ArenaRoom storage room = arenaRooms[roomId];
+        require(msg.value == room.stake, "Send exact stake");
+
+        _resolveArenaRoom(roomId, heroId);
+    }
+
+    function joinArenaRoomWithNarration(
+        uint256 roomId,
+        uint256 heroId
+    ) external payable onlySomniaTestnet returns (uint256 requestId) {
+        ArenaRoom storage room = arenaRooms[roomId];
+        uint256 narrationFee = requiredArenaNarrationFee();
+        require(msg.value == room.stake + narrationFee, "Send stake plus LLM fee");
+
+        _resolveArenaRoom(roomId, heroId);
+        requestId = _requestArenaNarration(roomId, narrationFee);
+    }
+
+    function requestArenaNarration(uint256 roomId) external payable onlySomniaTestnet returns (uint256 requestId) {
+        require(msg.value == requiredArenaNarrationFee(), "Send exact LLM fee");
+        requestId = _requestArenaNarration(roomId, msg.value);
+    }
+
     function _handleMarketResponse(
         uint256 requestId,
         Response[] memory responses,
@@ -332,6 +440,26 @@ contract GatesOfSogentMarketGame {
         emit GateAdventureNarrated(requestId, heroId, route, story);
 
         _resolveGateRoute(heroId, route);
+    }
+
+    function _handleArenaNarrationResponse(
+        uint256 requestId,
+        Response[] memory responses,
+        ResponseStatus status
+    ) private {
+        uint256 roomId = requestToGroupId[requestId];
+        pendingArenaNarration[roomId] = false;
+
+        if (status != ResponseStatus.Success || responses.length == 0) {
+            emit AgentRequestFailed(requestId, roomId, status);
+            return;
+        }
+
+        string memory output = abi.decode(responses[0].result, (string));
+        string memory story = GateAdventureLib.extractStory(output);
+        lastArenaStory[roomId] = story;
+
+        emit ArenaFightNarrated(requestId, roomId, story);
     }
 
     function _resolveGateRoute(uint256 heroId, string memory route) private {
@@ -407,6 +535,85 @@ contract GatesOfSogentMarketGame {
             run.active,
             hasDecision && wantsContinue ? "LLM_BLOCKED_RETURNED" : hasDecision ? "LLM_RETURNED" : "RETURNED"
         );
+    }
+
+    function _resolveArenaRoom(uint256 roomId, uint256 challengerHeroId) private {
+        ArenaRoom storage room = arenaRooms[roomId];
+        Hero storage challenger = heroes[challengerHeroId];
+
+        require(room.creator != address(0), "Unknown room");
+        require(!room.resolved, "Room resolved");
+        require(room.challenger == address(0), "Room already joined");
+        require(challenger.owner == msg.sender, "Not hero owner");
+        require(challengerHeroId != room.creatorHeroId, "Same hero");
+
+        room.challenger = msg.sender;
+        room.challengerHeroId = challengerHeroId;
+        room.challengerPower = _arenaPower(challengerHeroId);
+        room.resolved = true;
+
+        bool creatorWon = ArenaCombatLib.winnerIsFirst(
+            roomId,
+            heroes[room.creatorHeroId].seed,
+            challenger.seed,
+            room.creatorPower,
+            room.challengerPower,
+            blockhash(block.number - 1)
+        );
+
+        uint256 loserHeroId;
+        if (creatorWon) {
+            room.winner = room.creator;
+            room.winnerHeroId = room.creatorHeroId;
+            loserHeroId = challengerHeroId;
+        } else {
+            room.winner = msg.sender;
+            room.winnerHeroId = challengerHeroId;
+            loserHeroId = room.creatorHeroId;
+        }
+
+        uint256 payout = room.stake * 2;
+        _sendValue(room.winner, payout);
+
+        emit ArenaRoomJoined(roomId, msg.sender, challengerHeroId);
+        emit ArenaFightResolved(
+            roomId,
+            room.winner,
+            room.winnerHeroId,
+            loserHeroId,
+            payout,
+            room.creatorPower,
+            room.challengerPower
+        );
+    }
+
+    function _requestArenaNarration(uint256 roomId, uint256 fee) private returns (uint256 requestId) {
+        ArenaRoom storage room = arenaRooms[roomId];
+        require(room.creator != address(0), "Unknown room");
+        require(room.resolved && room.winner != address(0), "Fight not resolved");
+        require(!pendingArenaNarration[roomId], "Narration pending");
+
+        bytes memory payload = abi.encodeWithSelector(
+            ILLMAgent.inferString.selector,
+            _arenaFightPrompt(roomId),
+            _arenaFightSystem(),
+            false,
+            _emptyAllowedValues()
+        );
+
+        requestId = SOMNIA_AGENTS.createRequest{value: fee}(
+            LLM_INFERENCE_AGENT_ID,
+            address(this),
+            this.handleResponse.selector,
+            payload
+        );
+
+        pendingRequests[requestId] = true;
+        requestKind[requestId] = REQUEST_ARENA_NARRATION;
+        requestToGroupId[requestId] = roomId;
+        pendingArenaNarration[roomId] = true;
+
+        emit ArenaNarrationRequested(requestId, roomId);
     }
 
     function _requestMarket(
@@ -593,6 +800,57 @@ contract GatesOfSogentMarketGame {
             run.loot += lootGain;
             run.floor++;
         }
+    }
+
+    function _arenaPower(uint256 heroId) private view returns (uint16) {
+        Hero storage hero = heroes[heroId];
+        return ArenaCombatLib.power(hero.rarity, hero.bravery, hero.greed, hero.wisdom, craftedWeapons[hero.owner]);
+    }
+
+    function _arenaFightSystem() private pure returns (string memory) {
+        return
+            "You are a concise RPG arena fight narrator. "
+            "The smart contract already decided winner, loser, strengths, and payout. "
+            "Do not change the result. Return exactly one plain-text line: STORY=<story>. "
+            "The story must describe three quick combat beats, why the winner gained advantage, and the final blow. "
+            "Do not invent exact token amounts beyond the provided stake and payout.";
+    }
+
+    function _arenaFightPrompt(uint256 roomId) private view returns (string memory) {
+        ArenaRoom storage room = arenaRooms[roomId];
+        Hero storage creatorHero = heroes[room.creatorHeroId];
+        Hero storage challengerHero = heroes[room.challengerHeroId];
+        uint256 loserHeroId = room.winnerHeroId == room.creatorHeroId ? room.challengerHeroId : room.creatorHeroId;
+        Hero storage loserHero = heroes[loserHeroId];
+
+        return
+            string.concat(
+                "Arena room ",
+                _toString(roomId),
+                ". Fighter A: ",
+                creatorHero.name,
+                " strength ",
+                _toString(room.creatorPower),
+                ". Fighter B: ",
+                challengerHero.name,
+                " strength ",
+                _toString(room.challengerPower),
+                ". Winner: ",
+                heroes[room.winnerHeroId].name,
+                ". Loser: ",
+                loserHero.name,
+                ". Stake per fighter in wei: ",
+                _toString(room.stake),
+                ". Payout in wei: ",
+                _toString(room.stake * 2),
+                ". Write 4 short sentences, old-school dark fantasy arena tone, under 650 characters. "
+                "Return exactly STORY=<paragraph>."
+            );
+    }
+
+    function _sendValue(address to, uint256 amount) private {
+        (bool ok, ) = payable(to).call{value: amount}("");
+        require(ok, "STT transfer failed");
     }
 
     function _toString(uint256 value) private pure returns (string memory) {

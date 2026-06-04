@@ -1,6 +1,7 @@
 import {
   CLASS_DEFS,
   WORLD_ASSET,
+  ARENA_ASSET,
   CAMPFIRE_ASSET,
   PLAYER_SHEET_ASSET,
   NPC_SHEET_ASSET,
@@ -8,16 +9,25 @@ import {
   PLAYER_SHEET_ROWS,
   PLAYER_DIRECTIONS,
   NPC_SHEET_IDS,
+  STANDALONE_NPC_ASSETS,
 } from "./config.js";
 import { normalizeError } from "./utils.js";
 
 export async function loadTextures({ addEvent } = {}) {
     const result = {
       world: await window.PIXI.Assets.load(WORLD_ASSET),
+      arena: null,
       campfire: null,
       playerFrames: null,
       npcs: {},
     };
+
+    try {
+      result.arena = await window.PIXI.Assets.load(ARENA_ASSET);
+      result.arena.source.scaleMode = "nearest";
+    } catch (error) {
+      addEvent?.("danger", `Arena asset failed to load: ${normalizeError(error)}`);
+    }
 
     try {
       result.campfire = await window.PIXI.Assets.load(CAMPFIRE_ASSET);
@@ -37,6 +47,8 @@ export async function loadTextures({ addEvent } = {}) {
     } catch (error) {
       addEvent?.("danger", `NPC sprite sheet failed to load: ${normalizeError(error)}`);
     }
+
+    await loadStandaloneNpcTextures(result.npcs, { addEvent });
 
     for (const heroClass of CLASS_DEFS) {
       result[heroClass.id] = await window.PIXI.Assets.load(heroClass.asset);
@@ -106,6 +118,20 @@ export async function loadTextures({ addEvent } = {}) {
     });
 
     return npcs;
+  }
+
+  async function loadStandaloneNpcTextures(npcs, { addEvent } = {}) {
+    await Promise.all(
+      Object.entries(STANDALONE_NPC_ASSETS).map(async ([id, asset]) => {
+        try {
+          const texture = await window.PIXI.Assets.load(asset);
+          texture.source.scaleMode = "nearest";
+          npcs[id] = texture;
+        } catch (error) {
+          addEvent?.("danger", `${id} sprite failed to load: ${normalizeError(error)}`);
+        }
+      }),
+    );
   }
 
   function normalizeSpriteFrame(canvas, width, height) {

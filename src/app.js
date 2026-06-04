@@ -12,7 +12,7 @@ import {
   CAMPFIRE_SCENE,
   RARITIES,
   NPCS,
-  OBSTACLES,
+  SCENE_CONFIG,
   DEFAULT_NAMES,
   PLAYER_DIRECTION_Y_OFFSETS,
 } from "./config.js";
@@ -25,12 +25,14 @@ const elements = {
     nearbyLabel: document.querySelector("#nearby-label"),
     talkButton: document.querySelector("#talk-button"),
     dialogue: document.querySelector("#dialogue"),
+    dialoguePortrait: document.querySelector("#dialogue-portrait"),
     dialogueSpeaker: document.querySelector("#dialogue-speaker"),
     dialogueText: document.querySelector("#dialogue-text"),
     dialogueAction: document.querySelector("#dialogue-action"),
     dialogueClose: document.querySelector("#dialogue-close"),
     storyModal: document.querySelector("#story-modal"),
     storyTitle: document.querySelector("#story-title"),
+    storySource: document.querySelector("#story-source"),
     storyText: document.querySelector("#story-text"),
     storyClose: document.querySelector("#story-close"),
     recruitForm: document.querySelector("#recruit-form"),
@@ -57,12 +59,19 @@ const elements = {
     shardCount: document.querySelector("#shard-count"),
     weaponName: document.querySelector("#weapon-name"),
     weaponCount: document.querySelector("#weapon-count"),
+    arenaStake: document.querySelector("#arena-stake"),
+    arenaRoomId: document.querySelector("#arena-room-id"),
+    arenaCreate: document.querySelector("#arena-create"),
+    arenaJoin: document.querySelector("#arena-join"),
+    arenaRoomStatus: document.querySelector("#arena-room-status"),
+    arenaMessage: document.querySelector("#arena-message"),
     eventLog: document.querySelector("#event-log"),
     logCount: document.querySelector("#log-count"),
     mobileControls: document.querySelector(".mobile-controls"),
   };
 
   const state = {
+    scene: "camp",
     heroes: [],
     events: [],
     selectedHeroId: null,
@@ -71,6 +80,13 @@ const elements = {
     keys: new Set(),
     touchMoves: new Set(),
     seenStories: new Set(),
+    arena: {
+      lastRoomId: null,
+      lastFight: null,
+      pendingStoryRoomId: null,
+      seenStories: new Set(),
+      createdChallengeOwners: new Map(),
+    },
     connection: {
       mode: "simulation",
       wallet: "",
@@ -79,6 +95,7 @@ const elements = {
       gateSupport: false,
       forgeSupport: false,
       llmGateSupport: false,
+      arenaSupport: false,
       message: "Current Somnia test contract is loaded. Connect wallet to use it.",
       pendingRequests: [],
       busy: false,
@@ -113,7 +130,7 @@ const elements = {
     hydrateContractAddress();
 
     wireDomEvents();
-    addEvent("system", "Camp loaded. Simulation adapter is ready for the Somnia contract path.");
+    addEvent("system", "Camp loaded. The Somnia path is ready when you connect a contract.");
     renderAll();
 
     if (!window.PIXI) {
@@ -193,6 +210,14 @@ const elements = {
     elements.dialogueText.addEventListener("click", finishDialogueAnimation);
     elements.storyClose.addEventListener("click", closeStoryModal);
     elements.storyText.addEventListener("click", finishStoryAnimation);
+    elements.arenaCreate.addEventListener("click", () => {
+      void createArenaRoomFromInput();
+    });
+    elements.arenaJoin.addEventListener("click", () => {
+      void joinArenaRoomFromInput();
+    });
+    elements.arenaStake.addEventListener("input", renderArena);
+    elements.arenaRoomId.addEventListener("input", renderAll);
     elements.dialogueAction.addEventListener("click", () => {
       const npc = getActiveNpc();
       if (npc) {
@@ -259,6 +284,7 @@ const elements = {
         state.connection.gateSupport = false;
         state.connection.forgeSupport = false;
         state.connection.llmGateSupport = false;
+        state.connection.arenaSupport = false;
         state.forgeCost = WEAPON_SHARD_COST;
         state.connection.pendingRequests = [];
         state.connection.message = "Wallet account changed. Connect again to continue on Somnia.";
@@ -275,6 +301,7 @@ const elements = {
         state.connection.gateSupport = false;
         state.connection.forgeSupport = false;
         state.connection.llmGateSupport = false;
+        state.connection.arenaSupport = false;
         state.forgeCost = WEAPON_SHARD_COST;
         state.connection.pendingRequests = [];
         state.connection.message = "Wallet left Somnia Testnet. Connect again after switching back.";
@@ -310,7 +337,7 @@ const elements = {
     const fxLayer = new PIXI.Container();
     app.stage.addChild(worldLayer, objectLayer, groundFxLayer, npcLayer, playerLayer, fxLayer);
 
-    drawWorld(worldLayer);
+    const worldBackground = drawWorld(worldLayer);
     drawObjects(objectLayer);
     const campfireScene = buildCampfireScene();
     if (campfireScene) objectLayer.addChild(campfireScene);
@@ -341,6 +368,8 @@ const elements = {
     pixi = {
       app,
       npcSprites,
+      worldBackground,
+      campfireScene,
       playerSprite,
       playerLabel,
       gateStatusLabel,
@@ -354,6 +383,7 @@ const elements = {
       portalPulse: 0,
     };
 
+    applySceneVisuals();
     app.ticker.add((ticker) => tick(ticker.deltaTime || 1));
   }
 
@@ -404,7 +434,7 @@ const elements = {
       state.player.x = target.x;
       state.player.y = target.y;
       state.player.moving = false;
-      const npc = state.player.queuedNpcId ? NPCS.find((item) => item.id === state.player.queuedNpcId) : null;
+      const npc = state.player.queuedNpcId ? getCurrentNpcs().find((item) => item.id === state.player.queuedNpcId) : null;
       clearAutoMove();
       if (npc && Math.hypot(state.player.x - npc.x, state.player.y - npc.y) <= INTERACT_DISTANCE + 12) {
         state.nearbyNpcId = npc.id;
@@ -431,8 +461,9 @@ const elements = {
   }
 
   function tryMove(dx, dy) {
-    const nextX = clamp(state.player.x + dx, 34, PIXI_WIDTH - 34);
-    const nextY = clamp(state.player.y + dy, 148, PIXI_HEIGHT - 36);
+    const bounds = getSceneBounds();
+    const nextX = clamp(state.player.x + dx, bounds.minX, bounds.maxX);
+    const nextY = clamp(state.player.y + dy, bounds.minY, bounds.maxY);
 
     if (!isBlocked(nextX, state.player.y)) {
       state.player.x = nextX;
@@ -440,10 +471,12 @@ const elements = {
     if (!isBlocked(state.player.x, nextY)) {
       state.player.y = nextY;
     }
+
+    handleSceneTransition();
   }
 
   function isBlocked(x, y) {
-    return OBSTACLES.some((rect) => x > rect.x && x < rect.x + rect.w && y > rect.y && y < rect.y + rect.h);
+    return getSceneObstacles().some((rect) => x > rect.x && x < rect.x + rect.w && y > rect.y && y < rect.y + rect.h);
   }
 
   function getMovementInput() {
@@ -468,6 +501,7 @@ const elements = {
 
   function updatePixiSprites() {
     if (!pixi) return;
+    applySceneVisuals();
     const hero = getSelectedHero();
     const heroClass = hero ? getClass(hero.classId) : CLASS_DEFS[0];
 
@@ -503,6 +537,11 @@ const elements = {
 
     pixi.portalPulse += 0.04;
     pixi.npcSprites.forEach((sprite, id) => {
+      const npc = NPCS.find((item) => item.id === id);
+      const isVisible = npc ? isNpcInCurrentScene(npc) : false;
+      sprite.visible = isVisible;
+      if (!isVisible) return;
+
       sprite.y = sprite.baseY;
       sprite.alpha = id === state.nearbyNpcId ? 1 : 0.88;
       const npcAgent = sprite.children.find((child) => child.label === "npc-agent" || child.label === "npc-fallback");
@@ -534,6 +573,7 @@ const elements = {
     const g = pixi.gateFx;
     const t = pixi.portalPulse;
     g.clear();
+    if (state.scene !== "camp") return;
 
     for (let i = 0; i < 4; i += 1) {
       const phase = t + i * 0.8;
@@ -559,6 +599,7 @@ const elements = {
     const campfire = getCampfireFlameAnchor();
 
     g.clear();
+    if (state.scene !== "camp") return;
     drawCampfireFlame(g, campfire.x, campfire.y, t);
   }
 
@@ -634,6 +675,11 @@ const elements = {
 
   function updateGateStatusLabel() {
     if (!pixi?.gateStatusLabel) return;
+    if (state.scene !== "camp") {
+      pixi.gateStatusLabel.visible = false;
+      return;
+    }
+    pixi.gateStatusLabel.visible = true;
     const hero = getSelectedHero();
     const run = hero ? adapter.getRun(hero.id) : null;
 
@@ -670,8 +716,12 @@ const elements = {
 
   function updateStoryMarker() {
     if (!pixi?.storyMarker) return;
+    if (state.scene !== "camp") {
+      pixi.storyMarker.visible = false;
+      return;
+    }
 
-    const hero = getSelectedHero();
+      const hero = getSelectedHero();
     const story = hero ? getUnreadAdventureStory(hero.id) : null;
     const run = hero ? adapter.getRun(hero.id) : null;
     const warden = NPCS.find((npc) => npc.id === "warden");
@@ -768,6 +818,59 @@ const elements = {
     });
   }
 
+  function spawnArenaFightAnimation(fight) {
+    if (!pixi?.floatingLayer || state.scene !== "arena") return;
+
+    const leftHero = state.heroes.find((hero) => hero.id === fight.winnerHeroId) || getSelectedHero();
+    const rightHero = state.heroes.find((hero) => hero.id === fight.loserHeroId) || getSelectedHero();
+    const centerX = 512;
+    const centerY = 362;
+    const c = new PIXI.Container();
+    c.x = centerX;
+    c.y = centerY;
+    c.life = 150;
+
+    const left = buildArenaFighter(leftHero, -86, 0, "right");
+    const right = buildArenaFighter(rightHero, 86, 0, "left");
+    const slash = new PIXI.Graphics();
+    slash.label = "arena-slash";
+    slash.alpha = 0;
+
+    c.addChild(left, right, slash);
+    pixi.floatingLayer.addChild(c);
+
+    const item = {
+      label: c,
+      startY: centerY,
+      life: 150,
+      maxLife: 150,
+      wobble: 0,
+      arenaFight: { left, right, slash },
+    };
+    pixi.floatingTexts.push(item);
+  }
+
+  function buildArenaFighter(hero, x, y, dir) {
+    const c = new PIXI.Container();
+    const heroClass = hero ? getClass(hero.classId) : CLASS_DEFS[0];
+    const frames = textures.playerFrames?.[dir] || textures.playerFrames?.down || [];
+    const sprite = new PIXI.Sprite(frames[1] || frames[0] || PIXI.Texture.EMPTY);
+    sprite.anchor.set(0.5, 1);
+    sprite.scale.set(0.26);
+    sprite.tint = heroClass.color;
+    sprite.y = 8;
+
+    const shadow = new PIXI.Graphics();
+    shadow.ellipse(0, 10, 18, 5).fill({ color: 0x000000, alpha: 0.35 });
+
+    const label = buildWorldLabel(hero ? hero.name : "Fighter", heroClass.color);
+    label.y = -66;
+    c.x = x;
+    c.y = y;
+    c.addChild(shadow, sprite, label);
+    return c;
+  }
+
   function updateFloatingTexts(delta) {
     if (!pixi?.floatingTexts) return;
 
@@ -775,14 +878,37 @@ const elements = {
       const item = pixi.floatingTexts[i];
       item.life -= delta;
       const age = item.maxLife - item.life;
-      item.label.y = item.startY - age * 0.42;
-      item.label.x += Math.sin(age * 0.08 + item.wobble) * 0.12;
+      if (item.arenaFight) {
+        updateArenaFightAnimation(item, age);
+      } else {
+        item.label.y = item.startY - age * 0.42;
+        item.label.x += Math.sin(age * 0.08 + item.wobble) * 0.12;
+      }
       item.label.alpha = clamp(item.life / 28, 0, 1);
 
       if (item.life <= 0) {
         item.label.destroy();
         pixi.floatingTexts.splice(i, 1);
       }
+    }
+  }
+
+  function updateArenaFightAnimation(item, age) {
+    const { left, right, slash } = item.arenaFight;
+    const clash = Math.min(1, age / 46);
+    const recoil = age > 78 ? Math.min(1, (age - 78) / 30) : 0;
+    left.x = -86 + clash * 52 - recoil * 18;
+    right.x = 86 - clash * 52 + recoil * 34;
+    left.y = Math.sin(age * 0.22) * 2;
+    right.y = Math.cos(age * 0.2) * 2;
+
+    slash.clear();
+    if (age > 42 && age < 92) {
+      slash.alpha = Math.sin(((age - 42) / 50) * Math.PI);
+      slash.moveTo(-30, -58).lineTo(34, 10).stroke({ width: 5, color: 0xf0a94b, alpha: 0.75 });
+      slash.moveTo(28, -56).lineTo(-34, 12).stroke({ width: 3, color: 0x42d6c5, alpha: 0.62 });
+    } else {
+      slash.alpha = 0;
     }
   }
 
@@ -793,19 +919,87 @@ const elements = {
       background.width = PIXI_WIDTH;
       background.height = PIXI_HEIGHT;
       layer.addChild(background);
-      return;
+      return background;
     }
 
     const fallback = new PIXI.Graphics();
     fallback.rect(0, 0, PIXI_WIDTH, PIXI_HEIGHT).fill(0x071013);
     fallback.rect(0, 118, PIXI_WIDTH, 522).fill(0x17201b);
     layer.addChild(fallback);
+    return null;
   }
 
   function drawObjects(layer) {
     const vignette = new PIXI.Graphics();
     vignette.rect(0, 0, PIXI_WIDTH, PIXI_HEIGHT).stroke({ width: 2, color: 0x263331, alpha: 0.85 });
     layer.addChild(vignette);
+  }
+
+  function applySceneVisuals() {
+    if (!pixi) return;
+    const scene = getSceneConfig();
+    const backgroundTexture = textures[scene.textureKey];
+
+    if (pixi.worldBackground && backgroundTexture && pixi.worldBackground.texture !== backgroundTexture) {
+      backgroundTexture.source.scaleMode = "nearest";
+      pixi.worldBackground.texture = backgroundTexture;
+      pixi.worldBackground.width = PIXI_WIDTH;
+      pixi.worldBackground.height = PIXI_HEIGHT;
+    }
+
+    if (pixi.campfireScene) {
+      pixi.campfireScene.visible = state.scene === "camp";
+    }
+  }
+
+  function getSceneConfig(sceneId = state.scene) {
+    return SCENE_CONFIG[sceneId] || SCENE_CONFIG.camp;
+  }
+
+  function getSceneBounds() {
+    return getSceneConfig().bounds;
+  }
+
+  function getSceneObstacles() {
+    return getSceneConfig().obstacles || [];
+  }
+
+  function getCurrentNpcs() {
+    return NPCS.filter(isNpcInCurrentScene);
+  }
+
+  function isNpcInCurrentScene(npc) {
+    return (npc.scene || "camp") === state.scene;
+  }
+
+  function handleSceneTransition() {
+    const scene = getSceneConfig();
+    const exit = scene.exits?.find(
+      (item) =>
+        state.player.x >= item.xMin &&
+        state.player.x <= item.xMax &&
+        state.player.y >= item.yMin &&
+        state.player.y <= item.yMax,
+    );
+    if (!exit) return;
+
+    switchScene(exit.to, exit.spawn, exit.message);
+  }
+
+  function switchScene(sceneId, spawn, message) {
+    if (!SCENE_CONFIG[sceneId] || state.scene === sceneId) return;
+
+    state.scene = sceneId;
+    state.player.x = spawn.x;
+    state.player.y = spawn.y;
+    state.player.dir = spawn.dir || state.player.dir;
+    state.player.moving = false;
+    state.nearbyNpcId = null;
+    closeDialogue();
+    clearAutoMove();
+    applySceneVisuals();
+    addEvent("system", message || `Entered ${getSceneConfig().name}.`);
+    renderAll();
   }
 
   function drawTent(g, x, y, fabric, trim) {
@@ -878,9 +1072,14 @@ const elements = {
     c.y = npc.y;
     c.baseY = npc.y;
     c.phase = Math.random() * Math.PI * 2;
+    const spriteScale = npc.scale || 0.185;
+    const spriteBaseY = npc.spriteBaseY ?? 8;
 
     const shadow = new PIXI.Graphics();
-    shadow.ellipse(0, 8, 28, 9).fill({ color: 0x000000, alpha: npc.hiddenSprite ? 0 : 0.36 });
+    shadow.ellipse(0, npc.ringY ?? 8, npc.shadowWidth || 28, npc.shadowHeight || 9).fill({
+      color: 0x000000,
+      alpha: npc.hiddenSprite ? 0 : 0.36,
+    });
 
     const npcTexture = textures.npcs?.[npc.skin || npc.id];
     if (npc.hiddenSprite) {
@@ -889,11 +1088,11 @@ const elements = {
       const sprite = new PIXI.Sprite(npcTexture);
       sprite.label = "npc-agent";
       sprite.anchor.set(0.5, 1);
-      sprite.scale.set(0.185);
-      sprite.baseScaleX = 0.185;
-      sprite.baseScaleY = 0.185;
-      sprite.baseY = 8;
-      sprite.y = 8;
+      sprite.scale.set(spriteScale);
+      sprite.baseScaleX = spriteScale;
+      sprite.baseScaleY = spriteScale;
+      sprite.baseY = spriteBaseY;
+      sprite.y = spriteBaseY;
       c.addChild(shadow, sprite);
     } else {
       const g = new PIXI.Graphics();
@@ -908,10 +1107,15 @@ const elements = {
     }
 
     const hit = new PIXI.Graphics();
-    hit.rect(-42, npc.hiddenSprite ? -62 : -96, 84, npc.hiddenSprite ? 84 : 116).fill({ color: 0xffffff, alpha: 0.001 });
+    hit.rect(
+      -42,
+      npc.hitY ?? (npc.hiddenSprite ? -62 : -96),
+      84,
+      npc.hitHeight ?? (npc.hiddenSprite ? 84 : 116),
+    ).fill({ color: 0xffffff, alpha: 0.001 });
     const name = buildWorldLabel(npc.tag, npc.color);
     name.label = "npc-label";
-    name.baseY = npc.hiddenSprite ? -48 : -92;
+    name.baseY = npc.labelY ?? (npc.hiddenSprite ? -48 : -92);
     name.y = name.baseY;
     c.addChild(hit, name);
     return c;
@@ -1047,9 +1251,10 @@ const elements = {
   }
 
   function setMoveTarget(x, y, npcId) {
+    const bounds = getSceneBounds();
     const target = {
-      x: clamp(x, 34, PIXI_WIDTH - 34),
-      y: clamp(y, 148, PIXI_HEIGHT - 36),
+      x: clamp(x, bounds.minX, bounds.maxX),
+      y: clamp(y, bounds.minY, bounds.maxY),
     };
 
     if (isBlocked(target.x, target.y)) return;
@@ -1064,6 +1269,7 @@ const elements = {
   }
 
   function getNpcApproachPoint(npc) {
+    if (npc.approach) return { x: npc.x + npc.approach.x, y: npc.y + npc.approach.y };
     if (npc.hiddenSprite) return { x: npc.x, y: npc.y + 46 };
     if (npc.id === "oracle") return { x: npc.x, y: npc.y + 76 };
     if (npc.id === "blacksmith") return { x: npc.x - 66, y: npc.y - 44 };
@@ -1092,9 +1298,18 @@ const elements = {
 
   function openAdventureStory(hero, story) {
     state.seenStories.add(getStoryKey(hero.id, story));
-    elements.storyTitle.textContent = `${hero.name}'s Gate Story`;
+    elements.storyTitle.textContent = `${hero.name}'s Gate Legend`;
+    elements.storySource.textContent = "Warden's Chronicle";
     elements.storyModal.classList.remove("is-hidden");
-    startStoryAnimation(story.story);
+    startStoryAnimation(cleanLegendText(story.story));
+  }
+
+  function openArenaStory(roomId, story) {
+    state.arena.seenStories.add(getArenaStoryKey(roomId, story));
+    elements.storyTitle.textContent = `Challenge ${roomId} Legend`;
+    elements.storySource.textContent = "Arena Master's Chronicle";
+    elements.storyModal.classList.remove("is-hidden");
+    startStoryAnimation(cleanLegendText(story.story || story));
   }
 
   function closeStoryModal() {
@@ -1103,11 +1318,25 @@ const elements = {
     renderAll();
   }
 
+  function cleanLegendText(value) {
+    return String(value || "")
+      .replace(/^\s*ROUTE\s*=\s*[PSps]+\s*/gm, "")
+      .replace(/\bROUTE\s*=\s*[PSps]+\b/g, "")
+      .replace(/^\s*STORY\s*=\s*/i, "")
+      .replace(/^<+|>+$/g, "")
+      .trim();
+  }
+
   async function performNpcAction(npcId) {
     if (state.connection.busy) return;
 
     if (npcId === "recruiter") {
       await recruitHeroFromInput();
+      return;
+    }
+
+    if (npcId === "guildmaster") {
+      chooseNextHeroAtGuildmaster();
       return;
     }
 
@@ -1151,7 +1380,7 @@ const elements = {
       }
       const run = adapter.getRun(hero.id);
       if (run?.active && run.pendingDecision) {
-        addEvent("system", `Waiting for the Somnia LLM adventure callback for ${hero.name}.`);
+        addEvent("system", `${hero.name}'s omen is still being read by the Warden.`);
         renderAll();
         return;
       }
@@ -1164,11 +1393,11 @@ const elements = {
       state.connection.busy = true;
       state.connection.message =
         run?.active && state.connection.mode === "somnia" && adapter.llmGateSupport
-          ? "Requesting LLM adventure plan..."
+          ? "Reading the next gate omen..."
           : run?.active
             ? "Resolving gate floor..."
             : state.connection.mode === "somnia" && adapter.llmGateSupport
-              ? "Entering gate and requesting LLM adventure plan..."
+              ? "Entering gate and opening the chronicle..."
               : "Starting gate run...";
       renderAll();
       try {
@@ -1184,7 +1413,7 @@ const elements = {
           if (activeRun?.active && !entry.pendingDecision && (state.connection.mode !== "somnia" || adapter.llmGateSupport)) {
             state.connection.message =
               state.connection.mode === "somnia" && adapter.llmGateSupport
-                ? "Requesting LLM adventure plan..."
+                ? "Reading the first gate omen..."
                 : "Resolving Floor 1...";
             renderConnection();
             const result = await adapter.resolveGateStep(hero);
@@ -1193,7 +1422,7 @@ const elements = {
         }
         state.connection.message =
           state.connection.mode === "somnia" && adapter.llmGateSupport
-            ? "Gate transaction confirmed. Waiting for LLM story callback."
+            ? "Gate order confirmed. The Warden is writing the chronicle."
             : state.connection.mode === "somnia"
               ? "Gate transaction confirmed."
               : "Simulation gate action resolved.";
@@ -1224,6 +1453,22 @@ const elements = {
         state.connection.busy = false;
         renderAll();
       }
+      return;
+    }
+
+    if (npcId === "arena-master") {
+      const roomId = Number(elements.arenaRoomId.value.trim() || state.arena.lastRoomId || 0);
+      const story = roomId ? getUnreadArenaStory(roomId) : null;
+      if (story) {
+        openArenaStory(roomId, story);
+        renderAll();
+        return;
+      }
+      if (elements.arenaRoomId.value.trim()) {
+        await joinArenaRoomFromInput();
+      } else {
+        await createArenaRoomFromInput();
+      }
     }
   }
 
@@ -1236,7 +1481,7 @@ const elements = {
 
     state.connection.busy = true;
     state.connection.message =
-      state.connection.mode === "somnia" ? "Submitting hero request to Somnia Agents..." : "Generating simulated hero...";
+      state.connection.mode === "somnia" ? "Opening recruitment rite on Somnia..." : "Generating simulated hero...";
     renderAll();
 
     try {
@@ -1249,9 +1494,105 @@ const elements = {
       elements.heroName.value = "";
       state.connection.message =
         state.connection.mode === "somnia"
-          ? "Hero request confirmed. Waiting for Somnia Agent callbacks."
+          ? "Recruitment rite confirmed. Waiting for market omens."
           : "Simulation hero generated.";
 
+      result.events.forEach((item) => addEvent(item.type, item.message));
+    } catch (error) {
+      state.connection.message = normalizeError(error);
+      addEvent("danger", state.connection.message);
+    } finally {
+      state.connection.busy = false;
+      renderAll();
+    }
+  }
+
+  function chooseNextHeroAtGuildmaster() {
+    if (state.heroes.length === 0) {
+      addEvent("danger", "The Guildmaster needs a recruited hero first.");
+      renderAll();
+      return;
+    }
+
+    const currentIndex = state.heroes.findIndex((hero) => hero.id === state.selectedHeroId);
+    const nextHero = state.heroes[(currentIndex + 1 + state.heroes.length) % state.heroes.length];
+    state.selectedHeroId = nextHero.id;
+    addEvent("system", `Guildmaster selected ${nextHero.name} as the active hero.`);
+    renderAll();
+  }
+
+  async function createArenaRoomFromInput() {
+    if (state.connection.busy) return;
+    const hero = getSelectedHero();
+    if (!hero) {
+      addEvent("danger", "Arena Master needs a selected hero first.");
+      renderAll();
+      return;
+    }
+
+    const stake = elements.arenaStake.value.trim() || "0.01";
+    state.connection.busy = true;
+    state.connection.message = state.connection.mode === "somnia" ? "Posting arena challenge on Somnia..." : "Posting simulated arena challenge...";
+    renderAll();
+
+    try {
+      const result = await adapter.createArenaRoom(hero, stake);
+      if (result.roomId) {
+        state.arena.lastRoomId = Number(result.roomId);
+        if (state.connection.wallet) {
+          state.arena.createdChallengeOwners.set(Number(result.roomId), state.connection.wallet.toLowerCase());
+        }
+        elements.arenaRoomId.value = String(result.roomId);
+      }
+      state.connection.message =
+        state.connection.mode === "somnia"
+          ? "Challenge posted. Share the challenge id with another wallet."
+          : "Simulation arena challenge posted.";
+      result.events.forEach((item) => addEvent(item.type, item.message));
+    } catch (error) {
+      state.connection.message = normalizeError(error);
+      addEvent("danger", state.connection.message);
+    } finally {
+      state.connection.busy = false;
+      renderAll();
+    }
+  }
+
+  async function joinArenaRoomFromInput() {
+    if (state.connection.busy) return;
+    const hero = getSelectedHero();
+    if (!hero) {
+      addEvent("danger", "Select the hero who will accept this challenge.");
+      renderAll();
+      return;
+    }
+
+    const roomId = Number(elements.arenaRoomId.value.trim());
+    if (!Number.isInteger(roomId) || roomId <= 0) {
+      addEvent("danger", "Enter a valid challenge id.");
+      renderAll();
+      return;
+    }
+
+    state.connection.busy = true;
+    state.connection.message =
+      state.connection.mode === "somnia" ? "Accepting challenge and opening the arena chronicle..." : "Resolving simulated arena challenge...";
+    renderAll();
+
+    try {
+      const result = await adapter.joinArenaRoom(hero, roomId);
+      state.arena.lastRoomId = Number(roomId);
+      if (result.fight) {
+        state.arena.lastFight = result.fight;
+        spawnArenaFightAnimation(result.fight);
+      }
+      if (result.story) {
+        openArenaStory(roomId, result.story);
+      } else if (result.pendingNarration) {
+        state.arena.pendingStoryRoomId = Number(roomId);
+      }
+      state.connection.message =
+        state.connection.mode === "somnia" ? "Arena fight confirmed. The Master is writing the chronicle." : "Simulation arena fight resolved.";
       result.events.forEach((item) => addEvent(item.type, item.message));
     } catch (error) {
       state.connection.message = normalizeError(error);
@@ -1267,6 +1608,7 @@ const elements = {
     renderConnection();
     renderMarket(adapter.peekMarket());
     renderInventory();
+    renderArena();
     renderSelectedHero();
     renderHeroes();
     renderDialogue();
@@ -1278,10 +1620,33 @@ const elements = {
     if (!npc) return;
 
     const text = getNpcDialogue(npc);
+    renderDialoguePortrait(npc);
     elements.dialogueSpeaker.textContent = npc.name;
     renderDialogueText(npc, text);
     elements.dialogueAction.textContent = getNpcActionLabel(npc);
     elements.dialogueAction.disabled = getNpcActionDisabled(npc);
+  }
+
+  function renderDialoguePortrait(npc) {
+    const portrait = getDialoguePortrait(npc);
+    elements.dialoguePortrait.src = portrait;
+    elements.dialoguePortrait.alt = "";
+  }
+
+  function getDialoguePortrait(npc) {
+    const skin = npc.skin || npc.id;
+    const portraits = {
+      "camp-mira": "./public/assets/ui/dialogue-portraits/mira.png",
+      "camp-brann": "./public/assets/ui/dialogue-portraits/brann.png",
+      recruiter: "./public/assets/ui/dialogue-portraits/recruiter.png",
+      guildmaster: "./public/assets/ui/dialogue-portraits/guildmaster.png?v=20260604-6",
+      oracle: "./public/assets/ui/dialogue-portraits/oracle.png",
+      warden: "./public/assets/ui/dialogue-portraits/warden.png",
+      blacksmith: "./public/assets/ui/dialogue-portraits/blacksmith.png",
+      "arena-master": "./public/assets/ui/dialogue-portraits/arena-master.png",
+    };
+
+    return portraits[skin] || portraits[npc.id] || portraits.recruiter;
   }
 
   function renderDialogueText(npc, text) {
@@ -1415,6 +1780,7 @@ const elements = {
       gateSupport,
       forgeSupport,
       llmGateSupport,
+      arenaSupport,
       message,
       busy,
       pendingRequests,
@@ -1424,15 +1790,17 @@ const elements = {
     elements.contractStatus.textContent = contractAddress ? shortAddress(contractAddress) : "No address set";
     elements.contractVersion.textContent = contractVersion;
     elements.nextHook.textContent =
-      mode === "somnia" && gateSupport && forgeSupport && llmGateSupport
-        ? "requestHero + LLM gate + forge"
+      mode === "somnia" && gateSupport && forgeSupport && llmGateSupport && arenaSupport
+        ? "full camp loop"
+        : mode === "somnia" && gateSupport && forgeSupport && llmGateSupport
+          ? "hero + gate legend + forge"
         : mode === "somnia" && gateSupport && forgeSupport
-          ? "requestHero + gateRun + forge"
+          ? "hero + gate + forge"
         : mode === "somnia" && gateSupport
-          ? "requestHero + gateRun"
+          ? "hero + gate"
           : mode === "somnia"
-            ? "requestHero(name)"
-            : "simulation adapter";
+          ? "recruitment rite"
+            : "camp simulation";
     elements.walletMessage.textContent = message;
     elements.connectWallet.disabled = busy;
     elements.reloadHeroes.disabled = busy || mode !== "somnia";
@@ -1451,12 +1819,48 @@ const elements = {
     elements.weaponName.textContent = inventory.weaponName || "None";
   }
 
+  function renderArena() {
+    const hero = getSelectedHero();
+    const roomId = Number(elements.arenaRoomId.value.trim() || state.arena.lastRoomId || 0);
+    const story = roomId ? getUnreadArenaStory(roomId) : null;
+    const lastFight = state.arena.lastFight;
+    const creator = roomId ? state.arena.createdChallengeOwners.get(roomId) : "";
+    const createdByCurrentWallet =
+      state.connection.mode === "somnia" &&
+      Boolean(roomId && creator && state.connection.wallet && creator === state.connection.wallet.toLowerCase());
+
+    elements.arenaCreate.disabled = state.connection.busy || !hero;
+    elements.arenaJoin.disabled = state.connection.busy || !hero || !roomId || createdByCurrentWallet;
+    elements.arenaRoomStatus.textContent = roomId ? `Challenge ${roomId}` : "No challenge";
+
+    if (story) {
+      elements.arenaMessage.textContent = `Arena Master has a new chronicle for challenge ${roomId}.`;
+      return;
+    }
+    if (lastFight) {
+      const winner = lastFight.winnerHeroName || `Hero ${lastFight.winnerHeroId}`;
+      elements.arenaMessage.textContent = `${winner} won challenge ${lastFight.roomId}. Strength ${lastFight.creatorPower} vs ${lastFight.challengerPower}.`;
+      return;
+    }
+    if (!hero) {
+      elements.arenaMessage.textContent = "Recruit and select a hero before posting or accepting a challenge.";
+      return;
+    }
+    if (createdByCurrentWallet) {
+      elements.arenaMessage.textContent = `Challenge ${roomId} is posted. Share this id with another wallet; they paste it here, select a hero, and press Accept.`;
+      return;
+    }
+    elements.arenaMessage.textContent = roomId
+      ? `${hero.name} will accept challenge ${roomId}. Use this only for another player's posted challenge.`
+      : `${hero.name} can post a wager challenge. After it is posted, share the challenge id.`;
+  }
+
   function renderPendingRequests() {
     const pending = state.connection.pendingRequests;
     if (pending.length === 0) {
       const row = document.createElement("li");
       row.className = "empty";
-      row.textContent = "No pending agent requests";
+      row.textContent = "No pending omens";
       elements.pendingList.replaceChildren(row);
       return;
     }
@@ -1464,9 +1868,9 @@ const elements = {
     const rows = pending.map((request) => {
       const row = document.createElement("li");
       const title = document.createElement("strong");
-      title.textContent = `${request.name} / Group ${request.groupId}`;
+      title.textContent = `${request.name} / Omen ${request.groupId}`;
       const status = document.createElement("span");
-      status.textContent = request.txHash ? `Waiting for HeroGenerated after ${shortAddress(request.txHash)}` : request.status;
+      status.textContent = request.txHash ? `Awaiting the market rite after ${shortAddress(request.txHash)}` : request.status;
       row.append(title, status);
       return row;
     });
@@ -1485,6 +1889,7 @@ const elements = {
         onHeroRequested: handleContractHeroRequest,
         onHeroGenerated: handleContractHero,
         onAgentFailed: handleContractAgentFailure,
+        onArenaStory: handleContractArenaStory,
         onEvent: (type, message) => {
           addEvent(type, message);
           renderAll();
@@ -1500,6 +1905,7 @@ const elements = {
       state.connection.gateSupport = contractAdapter.gateSupport;
       state.connection.forgeSupport = contractAdapter.forgeSupport;
       state.connection.llmGateSupport = contractAdapter.llmGateSupport;
+      state.connection.arenaSupport = contractAdapter.arenaSupport;
       state.forgeCost = contractAdapter.forgeCost || WEAPON_SHARD_COST;
       state.connection.message = "Connected. Recruiter, Gate Warden, and Blacksmith now submit Somnia transactions.";
       localStorage.setItem(STORAGE_CONTRACT_ADDRESS, contractAdapter.contractAddress);
@@ -1525,6 +1931,7 @@ const elements = {
       state.connection.gateSupport = false;
       state.connection.forgeSupport = false;
       state.connection.llmGateSupport = false;
+      state.connection.arenaSupport = false;
       state.forgeCost = WEAPON_SHARD_COST;
     } finally {
       state.connection.busy = false;
@@ -1540,8 +1947,9 @@ const elements = {
     state.connection.gateSupport = false;
     state.connection.forgeSupport = false;
     state.connection.llmGateSupport = false;
+    state.connection.arenaSupport = false;
     state.forgeCost = WEAPON_SHARD_COST;
-    state.connection.message = "Simulation adapter active. Wallet calls are paused.";
+    state.connection.message = "Camp simulation active. Wallet calls are paused.";
     state.connection.pendingRequests = [];
     addEvent("system", "Returned to local simulation mode.");
     renderAll();
@@ -1576,9 +1984,9 @@ const elements = {
       groupId: Number(request.groupId),
       name: request.name,
       txHash: request.txHash || "",
-      status: "Waiting for Somnia Agent callbacks",
+      status: "Awaiting the market rite",
     });
-    addEvent("system", `Hero request opened for ${request.name}. Waiting for market-agent consensus.`);
+    addEvent("system", `Recruitment rite opened for ${request.name}. Waiting for the market omens.`);
     renderAll();
   }
 
@@ -1595,7 +2003,14 @@ const elements = {
 
   function handleContractAgentFailure(details) {
     removePendingRequest(Number(details.groupId));
-    addEvent("danger", `Somnia Agent request failed for group ${details.groupId}.`);
+    addEvent("danger", `Somnia omen failed for group ${details.groupId}.`);
+    renderAll();
+  }
+
+  function handleContractArenaStory(roomId, story) {
+    state.arena.lastRoomId = Number(roomId);
+    state.arena.pendingStoryRoomId = null;
+    addEvent("reward", `Arena chronicle ready for challenge ${roomId}.`);
     renderAll();
   }
 
@@ -1789,7 +2204,7 @@ const elements = {
     } else if (run.active) {
       status.classList.add("is-active");
       value.textContent = run.pendingDecision ? `Floor ${run.floor} / waiting` : `Floor ${run.floor} / ${run.hp} HP`;
-      detail.textContent = run.pendingDecision ? "Somnia LLM callback pending" : `${run.loot} shards carried`;
+      detail.textContent = run.pendingDecision ? "Awaiting the Warden's omen" : `${run.loot} shards carried`;
     } else if (run.hp <= 0) {
       status.classList.add("is-danger");
       value.textContent = "Defeated";
@@ -1813,7 +2228,7 @@ const elements = {
 
     if (run.active) {
       badge.classList.add("is-active");
-      badge.textContent = run.pendingDecision ? `Gate F${run.floor} / LLM` : `Gate F${run.floor} / ${run.hp} HP`;
+      badge.textContent = run.pendingDecision ? `Gate F${run.floor} / omen` : `Gate F${run.floor} / ${run.hp} HP`;
     } else if (run.hp <= 0) {
       badge.classList.add("is-danger");
       badge.textContent = "Defeated";
@@ -1879,14 +2294,41 @@ const elements = {
   }
 
   function getNearbyNpc() {
-    return NPCS.find((npc) => npc.id === state.nearbyNpcId) || null;
+    return getCurrentNpcs().find((npc) => npc.id === state.nearbyNpcId) || null;
   }
 
   function getActiveNpc() {
-    return NPCS.find((npc) => npc.id === state.activeNpcId) || null;
+    return getCurrentNpcs().find((npc) => npc.id === state.activeNpcId) || null;
   }
 
   function getNpcDialogue(npc) {
+    if (npc.id === "guildmaster") {
+      const hero = getSelectedHero();
+      if (!state.heroes.length) {
+        return "Bring me sworn names first. The guild cannot choose from an empty roster.";
+      }
+      if (!hero) {
+        return "The guild roster is ready. Choose who carries Sogent's banner today.";
+      }
+      return `${hero.name} currently carries Sogent's banner. Ask me to call the next sworn hero forward.`;
+    }
+
+    if (npc.id === "arena-master") {
+      const roomId = Number(elements.arenaRoomId.value.trim() || state.arena.lastRoomId || 0);
+      const story = roomId ? getUnreadArenaStory(roomId) : null;
+      if (story) {
+        return `Challenge ${roomId} has a new arena chronicle. Read it before posting another wager.`;
+      }
+      const hero = getSelectedHero();
+      if (!hero) {
+        return "Recruit and select a hero before posting a wager challenge. Strength will affect the fight odds.";
+      }
+      if (roomId) {
+        return `${hero.name} can accept challenge ${roomId}. Strength and weapons shape the odds, then the Arena Master records the fight.`;
+      }
+      return `${hero.name} can post a wager challenge. Share the challenge id with another player, or recruit a second hero to test locally.`;
+    }
+
     if (npc.id === "blacksmith") {
       const inventory = adapter.getInventory ? adapter.getInventory() : { shards: 0, weapons: 0 };
       const forgeCost = inventory.forgeCost || state.forgeCost;
@@ -1908,16 +2350,16 @@ const elements = {
       return `${hero.name} is ready at camp. Enter the gate to start Floor 1.`;
     }
     if (run.active && run.pendingDecision) {
-      return `${hero.name} is waiting for the Somnia LLM Agent to return a route and story. The contract will resolve the adventure after the callback.`;
+      return `${hero.name} is beyond the gate. The Warden is reading the omen before the chronicle is sealed.`;
     }
     if (run.active) {
-      return `${hero.name} is on Floor ${run.floor} with ${run.hp} HP and ${run.loot} shards. Ask the LLM for a route and story.`;
+      return `${hero.name} is on Floor ${run.floor} with ${run.hp} HP and ${run.loot} shards. Ask the Warden to read the next omen.`;
     }
     const unreadStory = getUnreadAdventureStory(hero.id);
     if (unreadStory) {
       return run.hp <= 0
-        ? `${hero.name}'s gate run ended. The Warden has a new LLM story ready.`
-        : `${hero.name} returned from the gate. The Warden has a new LLM story ready.`;
+        ? `${hero.name}'s gate run ended. The Warden has a new legend ready.`
+        : `${hero.name} returned from the gate. The Warden has a new legend ready.`;
     }
     if (run.hp <= 0) {
       const adventureStory = getAdventureStory(hero.id);
@@ -1937,9 +2379,19 @@ const elements = {
     return adapter.getAdventureStory ? adapter.getAdventureStory(heroId) : null;
   }
 
+  function getArenaStory(roomId) {
+    return adapter.getArenaStory ? adapter.getArenaStory(roomId) : null;
+  }
+
   function getUnreadAdventureStory(heroId) {
     const story = getAdventureStory(heroId);
     if (!story || state.seenStories.has(getStoryKey(heroId, story))) return null;
+    return story;
+  }
+
+  function getUnreadArenaStory(roomId) {
+    const story = getArenaStory(roomId);
+    if (!story || state.arena.seenStories.has(getArenaStoryKey(roomId, story))) return null;
     return story;
   }
 
@@ -1947,7 +2399,21 @@ const elements = {
     return `${heroId}:${story.requestId || story.route}:${story.story}`;
   }
 
+  function getArenaStoryKey(roomId, story) {
+    return `${roomId}:${story.requestId || ""}:${story.story || story}`;
+  }
+
   function getNpcActionLabel(npc) {
+    if (npc.id === "guildmaster") {
+      return state.heroes.length ? "Next Hero" : "Recruit First";
+    }
+
+    if (npc.id === "arena-master") {
+      const roomId = Number(elements.arenaRoomId.value.trim() || state.arena.lastRoomId || 0);
+      if (roomId && getUnreadArenaStory(roomId)) return "See Fight";
+      return roomId ? "Accept" : "Challenge";
+    }
+
     if (npc.id === "blacksmith") {
       const inventory = adapter.getInventory ? adapter.getInventory() : { shards: 0 };
       const forgeCost = inventory.forgeCost || state.forgeCost;
@@ -1961,13 +2427,21 @@ const elements = {
 
     const run = adapter.getRun(hero.id);
     if (!run?.active && getUnreadAdventureStory(hero.id)) return "See Story";
-    if (run?.active && run.pendingDecision) return "Waiting LLM";
-    if (run?.active && state.connection.mode === "somnia" && state.connection.llmGateSupport) return "Ask Story";
+    if (run?.active && run.pendingDecision) return "Await Omen";
+    if (run?.active && state.connection.mode === "somnia" && state.connection.llmGateSupport) return "Read Omen";
     return run?.active ? "Resolve Floor" : "Enter Gate";
   }
 
   function getNpcActionDisabled(npc) {
     if (state.connection.busy) return true;
+    if (npc.id === "guildmaster") {
+      return state.heroes.length === 0;
+    }
+    if (npc.id === "arena-master") {
+      const roomId = Number(elements.arenaRoomId.value.trim() || state.arena.lastRoomId || 0);
+      if (roomId && getUnreadArenaStory(roomId)) return false;
+      return !getSelectedHero();
+    }
     if (npc.id === "warden") {
       const hero = getSelectedHero();
       if (!hero) return true;
@@ -1985,7 +2459,7 @@ const elements = {
   function findNpcNear(x, y, maxDistance) {
     let closest = null;
     let closestDistance = Infinity;
-    NPCS.forEach((npc) => {
+    getCurrentNpcs().forEach((npc) => {
       const distance = Math.hypot(x - npc.x, y - npc.y);
       if (distance < closestDistance) {
         closest = npc;
