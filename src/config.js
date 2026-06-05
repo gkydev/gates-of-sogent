@@ -46,6 +46,32 @@ export const CAMPFIRE_COMPANIONS = [
     { id: "camp-mira", texture: "mira", sourceX: 68, sourceY: 60, width: 232, height: 240, phase: 0.2 },
     { id: "camp-brann", texture: "brann", sourceX: 540, sourceY: 0, width: 323, height: 300, phase: 1.4 },
   ];
+export const LIGHT_SOURCES = {
+    camp: [
+      { x: 348, y: 121, type: "cyan", radius: 24 },
+      { x: 675, y: 121, type: "cyan", radius: 24 },
+      { x: 422, y: 203, type: "cyan", radius: 18 },
+      { x: 508, y: 223, type: "cyan", radius: 19 },
+      { x: 584, y: 203, type: "cyan", radius: 18 },
+      { x: 110, y: 266, type: "fire", radius: 16 },
+      { x: 807, y: 238, type: "fire", radius: 15 },
+      { x: 769, y: 388, type: "fire", radius: 28 },
+      { x: 949, y: 447, type: "fire", radius: 18 },
+    ],
+    arena: [
+      { x: 421, y: 97, type: "cyan", radius: 22 },
+      { x: 574, y: 97, type: "cyan", radius: 22 },
+      { x: 159, y: 399, type: "cyan", radius: 22 },
+      { x: 187, y: 491, type: "cyan", radius: 18 },
+      { x: 825, y: 478, type: "cyan", radius: 24 },
+      { x: 291, y: 97, type: "fire", radius: 16 },
+      { x: 736, y: 107, type: "fire", radius: 16 },
+      { x: 113, y: 254, type: "fire", radius: 18 },
+      { x: 914, y: 254, type: "fire", radius: 18 },
+      { x: 307, y: 485, type: "fire", radius: 28 },
+      { x: 638, y: 528, type: "fire", radius: 28 },
+    ],
+  };
 
 export const GAME_CONTRACT_ABI = [
     "function requestHero(string name) external payable returns (uint256 groupId)",

@@ -11,6 +11,7 @@ import {
   CLASS_DEFS,
   CAMPFIRE_SCENE,
   CAMPFIRE_COMPANIONS,
+  LIGHT_SOURCES,
   RARITIES,
   NPCS,
   SCENE_CONFIG,
@@ -357,6 +358,7 @@ const elements = {
 
     const gateFx = new PIXI.Graphics();
     const campfireFx = new PIXI.Graphics();
+    const lightFx = new PIXI.Graphics();
     const destinationMarker = new PIXI.Graphics();
     const interactRing = new PIXI.Graphics();
     const floatingLayer = new PIXI.Container();
@@ -366,7 +368,7 @@ const elements = {
     gateStatusLabel.x = 512;
     gateStatusLabel.y = 42;
     groundFxLayer.addChild(destinationMarker, interactRing);
-    fxLayer.addChild(gateFx, campfireFx, storyMarker, playerLabel, gateStatusLabel, floatingLayer);
+    fxLayer.addChild(lightFx, gateFx, campfireFx, storyMarker, playerLabel, gateStatusLabel, floatingLayer);
 
     pixi = {
       app,
@@ -380,6 +382,7 @@ const elements = {
       storyMarker,
       gateFx,
       campfireFx,
+      lightFx,
       destinationMarker,
       interactRing,
       floatingLayer,
@@ -573,8 +576,70 @@ const elements = {
 
     drawGateFx();
     drawCampfireFx();
+    drawLightFx();
     drawDestinationMarker();
     drawInteractRing();
+  }
+
+  function drawLightFx() {
+    if (!pixi?.lightFx) return;
+    const g = pixi.lightFx;
+    const t = pixi.portalPulse;
+    const sources = LIGHT_SOURCES[state.scene] || [];
+
+    g.clear();
+    sources.forEach((source, index) => {
+      const phase = t * (source.type === "cyan" ? 2.4 : 3.1) + index * 0.73;
+      if (source.type === "cyan") {
+        drawCyanLight(g, source.x, source.y, source.radius, phase);
+      } else {
+        drawFireLight(g, source.x, source.y, source.radius, phase);
+      }
+    });
+  }
+
+  function drawCyanLight(g, x, y, radius, phase) {
+    const pulse = 0.5 + Math.sin(phase) * 0.12;
+    const flickerX = Math.sin(phase * 1.7) * 1.2;
+
+    g.circle(x, y + 4, radius + pulse * 3).fill({
+      color: 0x42d6c5,
+      alpha: 0.055 + pulse * 0.035,
+    });
+    g.ellipse(x, y + 16, radius * 0.7, radius * 0.32).fill({
+      color: 0x42d6c5,
+      alpha: 0.045 + pulse * 0.02,
+    });
+    g.ellipse(x + flickerX, y - 2, 5, 12 + Math.sin(phase * 2.3) * 2).fill({
+      color: 0x42d6c5,
+      alpha: 0.22,
+    });
+    g.rect(x - 1 + flickerX, y - 15, 2, 7).fill({
+      color: 0x9ffdf3,
+      alpha: 0.2 + pulse * 0.08,
+    });
+  }
+
+  function drawFireLight(g, x, y, radius, phase) {
+    const pulse = 0.5 + Math.sin(phase) * 0.14;
+    const flickerX = Math.sin(phase * 1.9) * 1.4;
+
+    g.circle(x, y + 5, radius + pulse * 4).fill({
+      color: 0xf0a94b,
+      alpha: 0.045 + pulse * 0.035,
+    });
+    g.ellipse(x, y + 14, radius * 0.76, radius * 0.34).fill({
+      color: 0xff7a1a,
+      alpha: 0.04 + pulse * 0.025,
+    });
+    g.ellipse(x + flickerX, y - 1, 5, 11 + Math.sin(phase * 2.2) * 2).fill({
+      color: 0xff7a1a,
+      alpha: 0.2,
+    });
+    g.rect(x - 1 + flickerX, y - 11, 2, 6).fill({
+      color: 0xffd45a,
+      alpha: 0.18 + pulse * 0.08,
+    });
   }
 
   function drawGateFx() {
