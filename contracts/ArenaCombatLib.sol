@@ -7,11 +7,10 @@ library ArenaCombatLib {
         uint8 bravery,
         uint8 greed,
         uint8 wisdom,
-        uint256 weaponCount
+        uint256 weaponArenaBonus
     ) internal pure returns (uint16) {
-        uint256 cappedWeapons = weaponCount > 10 ? 10 : weaponCount;
         uint256 score = 30 + (uint256(rarity) * 28) + (uint256(bravery) * 2) + uint256(wisdom) + (uint256(greed) / 2)
-            + (cappedWeapons * 18);
+            + weaponArenaBonus;
 
         if (score > type(uint16).max) return type(uint16).max;
         return uint16(score);

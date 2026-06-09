@@ -8,11 +8,12 @@ export const MASK_64 = 0xffffffffffffffffn;
 export const SOMNIA_CHAIN_ID_DECIMAL = 50312;
 export const SOMNIA_CHAIN_ID_HEX = "0xc488";
 export const SOMNIA_RPC_URL = "https://dream-rpc.somnia.network/";
-export const DEFAULT_GAME_CONTRACT_ADDRESS = "0xf1990e36F8480a2bDB1806C8D500f769e3798495";
+export const DEFAULT_GAME_CONTRACT_ADDRESS = "";
 export const STORAGE_CONTRACT_ADDRESS = "gatesOfSogent.contractAddress";
 export const CONTRACT_QUERY_PARAM = "contract";
 export const WORLD_ASSET = "./public/assets/world/sogent-camp.png";
 export const ARENA_ASSET = "./public/assets/world/arena/arena-ground.png";
+export const FIGHT_CLOUD_ASSET = "./public/assets/effects/fight-cloud.png";
 export const CAMPFIRE_ASSET = "./public/assets/world/campfire-companions.png";
 export const CAMPFIRE_NPC_ASSETS = {
     mira: "./public/assets/sprites/campfire/mira.png",
@@ -78,6 +79,7 @@ export const GAME_CONTRACT_ABI = [
     "function contractVersion() external pure returns (string)",
     "function supportsGateRuns() external pure returns (bool)",
     "function supportsForge() external pure returns (bool)",
+    "function supportsWeaponNFTs() external pure returns (bool)",
     "function supportsLLMGateDecisions() external pure returns (bool)",
     "function supportsOneTxAdventure() external pure returns (bool)",
     "function supportsArenaRooms() external pure returns (bool)",
@@ -85,17 +87,28 @@ export const GAME_CONTRACT_ABI = [
     "function requiredGateDecisionFee() external view returns (uint256)",
     "function requiredArenaNarrationFee() external view returns (uint256)",
     "function WEAPON_SHARD_COST() external view returns (uint256)",
+    "function weaponNFTAddress() external view returns (address)",
+    "function FORGE_BASE_DURATION() external view returns (uint256)",
+    "function FORGE_TIER_DURATION() external view returns (uint256)",
+    "function FORGE_MAX_DURATION() external view returns (uint256)",
     "function getOwnerHeroes(address owner) external view returns (uint256[])",
     "function heroes(uint256 heroId) external view returns (address owner,string name,uint256 seed,uint256 bitcoinPrice,uint256 ethereumPrice,uint256 somniaPrice,uint8 classId,uint8 rarity,uint8 bravery,uint8 greed,uint8 wisdom)",
     "function gateRuns(uint256 heroId) external view returns (bool active,uint16 floor,uint16 hp,uint256 loot)",
     "function arenaRooms(uint256 roomId) external view returns (address creator,address challenger,uint256 creatorHeroId,uint256 challengerHeroId,uint256 stake,uint16 creatorPower,uint16 challengerPower,address winner,uint256 winnerHeroId,bool resolved)",
     "function shards(address owner) external view returns (uint256)",
     "function craftedWeapons(address owner) external view returns (uint256)",
+    "function equippedWeapons(uint256 heroId) external view returns (uint256)",
+    "function getEquippedWeaponBonus(uint256 heroId) external view returns (uint256)",
+    "function getForgeOrder(address owner) external view returns (bool active,uint256 tier,uint256 shardCost,uint256 startedAt,uint256 readyAt,uint256 remaining)",
     "function startGateRun(uint256 heroId) external",
     "function startAdventure(uint256 heroId) external payable returns (uint256 requestId)",
     "function requestGateDecision(uint256 heroId) external payable returns (uint256 requestId)",
     "function resolveGateFloor(uint256 heroId) external",
     "function craftWeapon() external",
+    "function startForgeOrder() external returns (uint256 tier)",
+    "function claimForgeOrder() external returns (uint256 weaponId)",
+    "function equipWeapon(uint256 heroId,uint256 weaponId) external",
+    "function unequipWeapon(uint256 heroId) external",
     "function createArenaRoom(uint256 heroId) external payable returns (uint256 roomId)",
     "function cancelArenaRoom(uint256 roomId) external",
     "function joinArenaRoom(uint256 roomId,uint256 heroId) external payable",
@@ -118,12 +131,28 @@ export const GAME_CONTRACT_ABI = [
     "event GateFloorResolved(uint256 indexed heroId,address indexed owner,uint16 floor,uint16 hp,uint256 loot,bool active,string outcome)",
     "event ShardsBanked(address indexed owner,uint256 amount,uint256 balance)",
     "event WeaponCrafted(address indexed owner,uint256 indexed weaponId,uint256 shardCost)",
+    "event ForgeOrderStarted(address indexed owner,uint256 indexed tier,uint256 shardCost,uint256 startedAt,uint256 readyAt)",
+    "event ForgeOrderClaimed(address indexed owner,uint256 indexed weaponId,uint256 indexed tier,uint256 arenaBonus)",
+    "event WeaponEquipped(uint256 indexed heroId,address indexed owner,uint256 indexed weaponId,uint256 arenaBonus)",
+    "event WeaponUnequipped(uint256 indexed heroId,address indexed owner,uint256 indexed weaponId)",
     "event ArenaRoomCreated(uint256 indexed roomId,address indexed creator,uint256 indexed heroId,uint256 stake)",
     "event ArenaRoomCancelled(uint256 indexed roomId,address indexed creator,uint256 stake)",
     "event ArenaRoomJoined(uint256 indexed roomId,address indexed challenger,uint256 indexed heroId)",
     "event ArenaFightResolved(uint256 indexed roomId,address indexed winner,uint256 indexed winnerHeroId,uint256 loserHeroId,uint256 payout,uint16 creatorPower,uint16 challengerPower)",
     "event ArenaNarrationRequested(uint256 indexed requestId,uint256 indexed roomId)",
     "event ArenaFightNarrated(uint256 indexed requestId,uint256 indexed roomId,string story)",
+  ];
+
+export const WEAPON_NFT_ABI = [
+    "function balanceOf(address owner) external view returns (uint256)",
+    "function ownerOf(uint256 tokenId) external view returns (address)",
+    "function tokenOfOwnerByIndex(address owner,uint256 index) external view returns (uint256)",
+    "function weaponStats(uint256 weaponId) external view returns (uint256 tier,uint256 arenaBonus,uint256 forgedAt)",
+    "function weaponTier(uint256 weaponId) external view returns (uint256)",
+    "function weaponArenaBonus(uint256 weaponId) external view returns (uint256)",
+    "function transferFrom(address from,address to,uint256 tokenId) external",
+    "function safeTransferFrom(address from,address to,uint256 tokenId) external",
+    "event Transfer(address indexed from,address indexed to,uint256 indexed tokenId)",
   ];
 
 export const WEAPON_SHARD_COST = 25;

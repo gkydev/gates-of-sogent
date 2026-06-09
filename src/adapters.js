@@ -1,11 +1,12 @@
 import {
   GAME_CONTRACT_ABI,
+  WEAPON_NFT_ABI,
   RARITIES,
   SOMNIA_CHAIN_ID_DECIMAL,
   SOMNIA_CHAIN_ID_HEX,
   SOMNIA_RPC_URL,
   WEAPON_SHARD_COST,
-} from "./config.js";
+} from "./config.js?v=20260609-demo-fight2";
 import {
   formatUsd,
   fromContractPrice,
@@ -17,7 +18,7 @@ import {
   shortAddress,
   toContractInt,
   traitFromSeed,
-} from "./utils.js";
+} from "./utils.js?v=20260609-demo-fight2";
 
 export function SimulationGameAdapter() {
     this.nextHeroId = 1;
@@ -26,7 +27,11 @@ export function SimulationGameAdapter() {
     this.arenaRooms = new Map();
     this.arenaStories = new Map();
     this.shards = 0;
-    this.weapons = 0;
+    this.weapons = [];
+    this.nextWeaponId = 1;
+    this.forgedCount = 0;
+    this.forgeOrder = null;
+    this.equippedWeapons = new Map();
     this.forgeCost = WEAPON_SHARD_COST;
     this.market = {
       bitcoinUsd: 68420.13,
@@ -41,11 +46,16 @@ export function SimulationGameAdapter() {
   };
 
   SimulationGameAdapter.prototype.getInventory = function getInventory() {
+    const weaponCount = this.weapons.length;
+    const latestWeapon = weaponCount ? this.weapons[weaponCount - 1] : null;
     return {
       shards: this.shards,
-      weapons: this.weapons,
-      weaponName: this.weapons > 0 ? `Shard Blade ${this.weapons}` : "None",
+      weapons: weaponCount,
+      weaponName: latestWeapon ? latestWeapon.name : "None",
       forgeCost: this.forgeCost,
+      forgeOrder: this.getForgeOrder(),
+      weaponItems: this.weapons.slice(),
+      nextForgeTier: this.forgedCount + 1,
     };
   };
 
@@ -225,7 +235,7 @@ export function SimulationGameAdapter() {
       creatorHero: hero,
       creatorHeroId: hero.id,
       stake,
-      creatorPower: arenaPower(hero, this.weapons),
+      creatorPower: arenaPower(hero, this.getEquippedWeaponBonus(hero.id)),
       resolved: false,
     };
     this.arenaRooms.set(roomId, room);
@@ -250,7 +260,7 @@ export function SimulationGameAdapter() {
       throw new Error("Use a different hero to accept this challenge.");
     }
 
-    const challengerPower = arenaPower(hero, this.weapons);
+    const challengerPower = arenaPower(hero, this.getEquippedWeaponBonus(hero.id));
     const creatorPower = room.creatorPower;
     const totalPower = creatorPower + challengerPower;
     const roll = Number(hash64(`${roomId}:${room.creatorHero.seed}:${hero.seed}:${Date.now()}`) % BigInt(totalPower));
@@ -295,7 +305,31 @@ export function SimulationGameAdapter() {
     return this.arenaStories.get(Number(roomId)) || null;
   };
 
-  SimulationGameAdapter.prototype.craftWeapon = function craftWeapon() {
+  SimulationGameAdapter.prototype.getForgeDuration = function getForgeDuration(tier) {
+    return Math.min(45 + tier * 15, 180) * 1000;
+  };
+
+  SimulationGameAdapter.prototype.getForgeOrder = function getForgeOrder() {
+    if (!this.forgeOrder) return null;
+    const remaining = Math.max(0, this.forgeOrder.readyAt - Date.now());
+    return {
+      ...this.forgeOrder,
+      remaining,
+      ready: remaining === 0,
+    };
+  };
+
+  SimulationGameAdapter.prototype.startForgeOrder = function startForgeOrder() {
+    if (this.forgeOrder) {
+      return {
+        events: [
+          {
+            type: "system",
+            message: `Forge is already working on Shard Blade ${this.forgeOrder.tier}.`,
+          },
+        ],
+      };
+    }
     if (this.shards < this.forgeCost) {
       return {
         events: [
@@ -307,21 +341,111 @@ export function SimulationGameAdapter() {
       };
     }
 
+    const tier = this.forgedCount + 1;
+    const startedAt = Date.now();
+    const readyAt = startedAt + this.getForgeDuration(tier);
     this.shards -= this.forgeCost;
-    this.weapons += 1;
+    this.forgeOrder = {
+      active: true,
+      tier,
+      shardCost: this.forgeCost,
+      startedAt,
+      readyAt,
+    };
     return {
       events: [
         {
-          type: "reward",
-          message: `Blacksmith crafted Shard Blade ${this.weapons} for ${this.forgeCost} shards.`,
+          type: "system",
+          message: `Blacksmith started Shard Blade ${tier}. The forge will finish soon.`,
         },
       ],
     };
   };
 
-  function arenaPower(hero, weaponCount = 0) {
+  SimulationGameAdapter.prototype.claimForgeOrder = function claimForgeOrder() {
+    const order = this.getForgeOrder();
+    if (!order) {
+      return { events: [{ type: "danger", message: "No forge order is waiting." }] };
+    }
+    if (!order.ready) {
+      return { events: [{ type: "system", message: "Forge is still working." }] };
+    }
+
+    this.forgedCount = order.tier;
+    const weapon = {
+      id: this.nextWeaponId,
+      tier: order.tier,
+      arenaBonus: Math.min(order.tier, 10) * 18,
+      forgedAt: Date.now(),
+      name: `Shard Blade ${order.tier}`,
+    };
+    this.nextWeaponId += 1;
+    this.weapons.push(weapon);
+    this.forgeOrder = null;
+
+    return {
+      weapon,
+      events: [
+        {
+          type: "reward",
+          message: `Blacksmith finished ${weapon.name}. Arena bonus +${weapon.arenaBonus}.`,
+        },
+      ],
+    };
+  };
+
+  SimulationGameAdapter.prototype.craftWeapon = function craftWeapon() {
+    return this.startForgeOrder();
+  };
+
+  SimulationGameAdapter.prototype.getEquippedWeapon = function getEquippedWeapon(heroId) {
+    const weaponId = this.equippedWeapons.get(Number(heroId));
+    return this.weapons.find((weapon) => weapon.id === weaponId) || null;
+  };
+
+  SimulationGameAdapter.prototype.getEquippedWeaponBonus = function getEquippedWeaponBonus(heroId) {
+    return this.getEquippedWeapon(heroId)?.arenaBonus || 0;
+  };
+
+  SimulationGameAdapter.prototype.equipWeapon = function equipWeapon(hero, weaponId) {
+    const weapon = this.weapons.find((item) => item.id === Number(weaponId));
+    if (!hero) throw new Error("Select a hero first.");
+    if (!weapon) throw new Error("Select an owned weapon first.");
+
+    this.equippedWeapons.set(Number(hero.id), weapon.id);
+    return {
+      events: [
+        {
+          type: "reward",
+          message: `${hero.name} equipped ${weapon.name}. Arena bonus +${weapon.arenaBonus}.`,
+        },
+      ],
+    };
+  };
+
+  SimulationGameAdapter.prototype.transferWeapon = function transferWeapon(weaponId, recipient) {
+    const parsedWeaponId = Number(weaponId);
+    if (!recipient || recipient.trim().length < 8) throw new Error("Enter a recipient wallet address.");
+    const index = this.weapons.findIndex((item) => item.id === parsedWeaponId);
+    if (index === -1) throw new Error("Select an owned weapon first.");
+
+    const [weapon] = this.weapons.splice(index, 1);
+    for (const [heroId, equippedWeaponId] of this.equippedWeapons.entries()) {
+      if (equippedWeaponId === parsedWeaponId) this.equippedWeapons.delete(heroId);
+    }
+    return {
+      events: [
+        {
+          type: "system",
+          message: `${weapon.name} sent to ${shortAddress(recipient)} in simulation.`,
+        },
+      ],
+    };
+  };
+
+  function arenaPower(hero, weaponArenaBonus = 0) {
     if (!hero) return 0;
-    return 30 + hero.rarity * 28 + hero.bravery * 2 + hero.wisdom + Math.floor(hero.greed / 2) + Math.min(10, weaponCount) * 18;
+    return 30 + hero.rarity * 28 + hero.bravery * 2 + hero.wisdom + Math.floor(hero.greed / 2) + weaponArenaBonus;
   }
 
 export function SomniaContractAdapter({ contractAddress, onHeroRequested, onHeroGenerated, onAgentFailed, onArenaStory, onEvent }) {
@@ -334,6 +458,8 @@ export function SomniaContractAdapter({ contractAddress, onHeroRequested, onHero
     this.provider = null;
     this.signer = null;
     this.contract = null;
+    this.weaponContract = null;
+    this.weaponNFTAddress = "";
     this.account = "";
     this.contractVersion = "Unknown";
     this.gateSupport = false;
@@ -348,7 +474,10 @@ export function SomniaContractAdapter({ contractAddress, onHeroRequested, onHero
     this.arenaStories = new Map();
     this.runs = new Map();
     this.shards = 0;
-    this.weapons = 0;
+    this.weapons = [];
+    this.forgedCount = 0;
+    this.forgeOrder = null;
+    this.equippedWeapons = new Map();
     this.forgeCost = WEAPON_SHARD_COST;
     this.market = {
       bitcoinUsd: 0,
@@ -406,15 +535,27 @@ export function SomniaContractAdapter({ contractAddress, onHeroRequested, onHero
     } catch {
       this.arenaSupport = false;
     }
+    let weaponNFTSupport = false;
+    try {
+      weaponNFTSupport = await this.contract.supportsWeaponNFTs();
+    } catch {
+      weaponNFTSupport = false;
+    }
     if (!this.gateSupport) {
       throw new Error("Connected contract does not support gate runs. Deploy the latest contract.");
     }
     if (!this.forgeSupport) {
       throw new Error("Connected contract does not support the forge loop. Deploy the latest contract.");
     }
+    if (!weaponNFTSupport) {
+      throw new Error("Connected contract does not support weapon NFTs. Deploy the latest contract.");
+    }
+    this.weaponNFTAddress = await this.contract.weaponNFTAddress();
+    this.weaponContract = new window.ethers.Contract(this.weaponNFTAddress, WEAPON_NFT_ABI, this.signer);
     await this.contract.gateRuns(0);
     await this.contract.shards(this.account);
     await this.contract.craftedWeapons(this.account);
+    await this.contract.getForgeOrder(this.account);
     this.forgeCost = Number(await this.contract.WEAPON_SHARD_COST());
   };
 
@@ -429,8 +570,13 @@ export function SomniaContractAdapter({ contractAddress, onHeroRequested, onHero
     this.contract.removeAllListeners("GateFloorResolved");
     this.contract.removeAllListeners("ShardsBanked");
     this.contract.removeAllListeners("WeaponCrafted");
+    this.contract.removeAllListeners("ForgeOrderStarted");
+    this.contract.removeAllListeners("ForgeOrderClaimed");
+    this.contract.removeAllListeners("WeaponEquipped");
+    this.contract.removeAllListeners("WeaponUnequipped");
     this.contract.removeAllListeners("ArenaFightResolved");
     this.contract.removeAllListeners("ArenaFightNarrated");
+    this.weaponContract?.removeAllListeners("Transfer");
 
     this.contract.on("HeroRequested", (groupId, owner, name, event) => {
       if (owner.toLowerCase() !== this.account.toLowerCase()) return;
@@ -554,8 +700,46 @@ export function SomniaContractAdapter({ contractAddress, onHeroRequested, onHero
 
     this.contract.on("WeaponCrafted", (owner, weaponId, shardCost) => {
       if (owner.toLowerCase() !== this.account.toLowerCase()) return;
-      this.weapons = Number(weaponId);
-      this.onEvent("reward", `Blacksmith crafted on-chain Shard Blade ${this.weapons} for ${Number(shardCost)} shards.`);
+      this.onEvent("reward", `Blacksmith finished weapon #${Number(weaponId)} for ${Number(shardCost)} shards.`);
+      this.refreshInventory().catch(() => {});
+    });
+
+    this.contract.on("ForgeOrderStarted", (owner, tier, shardCost, startedAt, readyAt) => {
+      if (owner.toLowerCase() !== this.account.toLowerCase()) return;
+      this.forgeOrder = this.parseForgeOrder({
+        active: true,
+        tier,
+        shardCost,
+        startedAt,
+        readyAt,
+      });
+      this.shards = Math.max(0, this.shards - Number(shardCost));
+      this.onEvent("system", `Forge order started for Shard Blade ${Number(tier)}.`);
+    });
+
+    this.contract.on("ForgeOrderClaimed", (owner, weaponId, tier, arenaBonus) => {
+      if (owner.toLowerCase() !== this.account.toLowerCase()) return;
+      this.forgeOrder = null;
+      this.onEvent("reward", `Claimed weapon #${Number(weaponId)}. Arena bonus +${Number(arenaBonus)}.`);
+      this.refreshInventory().catch(() => {});
+    });
+
+    this.contract.on("WeaponEquipped", (heroId, owner, weaponId, arenaBonus) => {
+      if (owner.toLowerCase() !== this.account.toLowerCase()) return;
+      this.equippedWeapons.set(Number(heroId), Number(weaponId));
+      this.onEvent("reward", `Hero ${Number(heroId)} equipped weapon #${Number(weaponId)} (+${Number(arenaBonus)} arena).`);
+    });
+
+    this.contract.on("WeaponUnequipped", (heroId, owner, weaponId) => {
+      if (owner.toLowerCase() !== this.account.toLowerCase()) return;
+      this.equippedWeapons.delete(Number(heroId));
+      this.onEvent("system", `Hero ${Number(heroId)} unequipped weapon #${Number(weaponId)}.`);
+    });
+
+    this.weaponContract?.on("Transfer", (from, to, weaponId) => {
+      const account = this.account.toLowerCase();
+      if (from.toLowerCase() !== account && to.toLowerCase() !== account) return;
+      this.refreshInventory().catch(() => {});
     });
 
     this.contract.on(
@@ -579,11 +763,17 @@ export function SomniaContractAdapter({ contractAddress, onHeroRequested, onHero
   };
 
   SomniaContractAdapter.prototype.getInventory = function getInventory() {
+    const weaponCount = this.weapons.length;
+    const latestWeapon = weaponCount ? this.weapons[weaponCount - 1] : null;
+    const forgeOrder = this.currentForgeOrder();
     return {
       shards: this.shards,
-      weapons: this.weapons,
-      weaponName: this.weapons > 0 ? `Shard Blade ${this.weapons}` : "None",
+      weapons: weaponCount,
+      weaponName: latestWeapon ? latestWeapon.name : "None",
       forgeCost: this.forgeCost,
+      forgeOrder,
+      weaponItems: this.weapons.slice(),
+      nextForgeTier: this.forgedCount + 1,
     };
   };
 
@@ -616,6 +806,7 @@ export function SomniaContractAdapter({ contractAddress, onHeroRequested, onHero
       }),
     );
     await this.refreshInventory();
+    await this.refreshEquippedWeapons(ids.map((heroId) => Number(heroId)));
     await this.loadRecentAdventureStories(ids.map((heroId) => Number(heroId)));
     return heroes;
   };
@@ -812,8 +1003,18 @@ export function SomniaContractAdapter({ contractAddress, onHeroRequested, onHero
     return this.runs.get(heroId) || null;
   };
 
-  SomniaContractAdapter.prototype.craftWeapon = async function craftWeapon() {
+  SomniaContractAdapter.prototype.startForgeOrder = async function startForgeOrder() {
     await this.refreshInventory();
+    if (this.forgeOrder?.active) {
+      return {
+        events: [
+          {
+            type: "system",
+            message: `Forge is already working on Shard Blade ${this.forgeOrder.tier}.`,
+          },
+        ],
+      };
+    }
     if (this.shards < this.forgeCost) {
       return {
         events: [
@@ -825,19 +1026,92 @@ export function SomniaContractAdapter({ contractAddress, onHeroRequested, onHero
       };
     }
 
-    const tx = await this.contract.craftWeapon();
-    this.onEvent("system", `Submitted craftWeapon() to Somnia: ${shortAddress(tx.hash)}.`);
+    const tx = await this.contract.startForgeOrder();
+    this.onEvent("system", `Submitted startForgeOrder() to Somnia: ${shortAddress(tx.hash)}.`);
     const receipt = await tx.wait();
-    const crafted = this.extractWeaponCrafted(receipt);
+    const started = this.extractForgeOrderStarted(receipt);
+    await this.refreshInventory();
+
+    return {
+      events: [
+        {
+          type: "system",
+          message: started
+            ? `Blacksmith started Shard Blade ${started.tier}. Ready at ${new Date(started.readyAt).toLocaleTimeString()}.`
+            : "Blacksmith started a forge order.",
+        },
+      ],
+    };
+  };
+
+  SomniaContractAdapter.prototype.claimForgeOrder = async function claimForgeOrder() {
+    await this.refreshInventory();
+    if (!this.forgeOrder?.active) {
+      return { events: [{ type: "danger", message: "No forge order is waiting." }] };
+    }
+    if (!this.forgeOrder.ready) {
+      return { events: [{ type: "system", message: "Forge is still working." }] };
+    }
+
+    const tx = await this.contract.claimForgeOrder();
+    this.onEvent("system", `Submitted claimForgeOrder() to Somnia: ${shortAddress(tx.hash)}.`);
+    const receipt = await tx.wait();
+    const claimed = this.extractForgeOrderClaimed(receipt);
     await this.refreshInventory();
 
     return {
       events: [
         {
           type: "reward",
-          message: crafted
-            ? `Blacksmith crafted on-chain Shard Blade ${crafted.weaponId} for ${crafted.shardCost} shards.`
-            : `Blacksmith crafted on-chain Shard Blade ${this.weapons}.`,
+          message: claimed
+            ? `Claimed weapon #${claimed.weaponId}. Arena bonus +${claimed.arenaBonus}.`
+            : "Claimed forged weapon.",
+        },
+      ],
+    };
+  };
+
+  SomniaContractAdapter.prototype.craftWeapon = async function craftWeapon() {
+    return this.startForgeOrder();
+  };
+
+  SomniaContractAdapter.prototype.equipWeapon = async function equipWeapon(hero, weaponId) {
+    if (!hero) throw new Error("Select a hero first.");
+    const parsedWeaponId = Number(weaponId);
+    if (!parsedWeaponId) throw new Error("Select an owned weapon first.");
+
+    const tx = await this.contract.equipWeapon(hero.id, parsedWeaponId);
+    this.onEvent("system", `Submitted equipWeapon(${hero.id}, ${parsedWeaponId}) to Somnia: ${shortAddress(tx.hash)}.`);
+    await tx.wait();
+    await this.refreshEquippedWeapons([hero.id]);
+
+    const weapon = this.weapons.find((item) => item.id === parsedWeaponId);
+    return {
+      events: [
+        {
+          type: "reward",
+          message: `${hero.name} equipped ${weapon?.name || `weapon #${parsedWeaponId}`}.`,
+        },
+      ],
+    };
+  };
+
+  SomniaContractAdapter.prototype.transferWeapon = async function transferWeapon(weaponId, recipient) {
+    if (!this.weaponContract) throw new Error("Weapon NFT contract is not loaded.");
+    if (!window.ethers.isAddress(recipient)) throw new Error("Enter a valid recipient wallet address.");
+    const parsedWeaponId = Number(weaponId);
+    if (!parsedWeaponId) throw new Error("Select an owned weapon first.");
+
+    const tx = await this.weaponContract.transferFrom(this.account, recipient, parsedWeaponId);
+    this.onEvent("system", `Submitted transfer of weapon #${parsedWeaponId}: ${shortAddress(tx.hash)}.`);
+    await tx.wait();
+    await this.refreshInventory();
+
+    return {
+      events: [
+        {
+          type: "system",
+          message: `Weapon #${parsedWeaponId} sent to ${shortAddress(recipient)}.`,
         },
       ],
     };
@@ -903,15 +1177,97 @@ export function SomniaContractAdapter({ contractAddress, onHeroRequested, onHero
 
   SomniaContractAdapter.prototype.refreshInventory = async function refreshInventory() {
     if (!this.contract || !this.account) return this.getInventory();
-    const [shards, weapons, forgeCost] = await Promise.all([
+    const [shards, forgedCount, forgeCost, forgeOrder, weaponItems] = await Promise.all([
       this.contract.shards(this.account),
       this.contract.craftedWeapons(this.account),
       this.contract.WEAPON_SHARD_COST(),
+      this.contract.getForgeOrder(this.account),
+      this.loadOwnedWeapons(),
     ]);
     this.shards = Number(shards);
-    this.weapons = Number(weapons);
+    this.forgedCount = Number(forgedCount);
     this.forgeCost = Number(forgeCost);
+    this.forgeOrder = this.parseForgeOrder(forgeOrder);
+    this.weapons = weaponItems;
     return this.getInventory();
+  };
+
+  SomniaContractAdapter.prototype.loadOwnedWeapons = async function loadOwnedWeapons() {
+    if (!this.weaponContract || !this.account) return [];
+    const balance = Number(await this.weaponContract.balanceOf(this.account));
+    const weapons = [];
+
+    for (let index = 0; index < balance; index += 1) {
+      const weaponId = Number(await this.weaponContract.tokenOfOwnerByIndex(this.account, index));
+      const stats = await this.weaponContract.weaponStats(weaponId);
+      const tier = Number(stats.tier ?? stats[0]);
+      const arenaBonus = Number(stats.arenaBonus ?? stats[1]);
+      const forgedAt = Number(stats.forgedAt ?? stats[2]) * 1000;
+      weapons.push({
+        id: weaponId,
+        tier,
+        arenaBonus,
+        forgedAt,
+        name: `Shard Blade ${tier}`,
+      });
+    }
+
+    return weapons.sort((first, second) => first.id - second.id);
+  };
+
+  SomniaContractAdapter.prototype.refreshEquippedWeapons = async function refreshEquippedWeapons(heroIds) {
+    if (!this.contract) return;
+    const pairs = await Promise.all(
+      heroIds.map(async (heroId) => {
+        const weaponId = Number(await this.contract.equippedWeapons(heroId));
+        return [Number(heroId), weaponId];
+      }),
+    );
+
+    pairs.forEach(([heroId, weaponId]) => {
+      if (weaponId) {
+        this.equippedWeapons.set(heroId, weaponId);
+      } else {
+        this.equippedWeapons.delete(heroId);
+      }
+    });
+  };
+
+  SomniaContractAdapter.prototype.getEquippedWeapon = function getEquippedWeapon(heroId) {
+    const weaponId = this.equippedWeapons.get(Number(heroId));
+    return this.weapons.find((weapon) => weapon.id === weaponId) || null;
+  };
+
+  SomniaContractAdapter.prototype.getEquippedWeaponBonus = function getEquippedWeaponBonus(heroId) {
+    return this.getEquippedWeapon(heroId)?.arenaBonus || 0;
+  };
+
+  SomniaContractAdapter.prototype.currentForgeOrder = function currentForgeOrder() {
+    if (!this.forgeOrder?.active) return null;
+    const remaining = Math.max(0, this.forgeOrder.readyAt - Date.now());
+    return {
+      ...this.forgeOrder,
+      remaining,
+      ready: remaining === 0,
+    };
+  };
+
+  SomniaContractAdapter.prototype.parseForgeOrder = function parseForgeOrder(order) {
+    if (!order) return null;
+    const active = Boolean(order.active ?? order[0]);
+    if (!active) return null;
+
+    const readyAt = Number(order.readyAt ?? order[4]) * 1000;
+    const remaining = Math.max(0, readyAt - Date.now());
+    return {
+      active,
+      tier: Number(order.tier ?? order[1]),
+      shardCost: Number(order.shardCost ?? order[2]),
+      startedAt: Number(order.startedAt ?? order[3]) * 1000,
+      readyAt,
+      remaining,
+      ready: remaining === 0,
+    };
   };
 
   SomniaContractAdapter.prototype.refreshGateRun = async function refreshGateRun(heroId) {
@@ -968,6 +1324,45 @@ export function SomniaContractAdapter({ contractAddress, onHeroRequested, onHero
           owner: parsed.args.owner,
           weaponId: Number(parsed.args.weaponId),
           shardCost: Number(parsed.args.shardCost),
+        };
+      } catch {
+        // Ignore logs from other contracts in the same transaction.
+      }
+    }
+    return null;
+  };
+
+  SomniaContractAdapter.prototype.extractForgeOrderStarted = function extractForgeOrderStarted(receipt) {
+    for (const log of receipt.logs || []) {
+      try {
+        const parsed = this.contract.interface.parseLog(log);
+        if (parsed?.name !== "ForgeOrderStarted") continue;
+        if (parsed.args.owner.toLowerCase() !== this.account.toLowerCase()) continue;
+        return {
+          owner: parsed.args.owner,
+          tier: Number(parsed.args.tier),
+          shardCost: Number(parsed.args.shardCost),
+          startedAt: Number(parsed.args.startedAt) * 1000,
+          readyAt: Number(parsed.args.readyAt) * 1000,
+        };
+      } catch {
+        // Ignore logs from other contracts in the same transaction.
+      }
+    }
+    return null;
+  };
+
+  SomniaContractAdapter.prototype.extractForgeOrderClaimed = function extractForgeOrderClaimed(receipt) {
+    for (const log of receipt.logs || []) {
+      try {
+        const parsed = this.contract.interface.parseLog(log);
+        if (parsed?.name !== "ForgeOrderClaimed") continue;
+        if (parsed.args.owner.toLowerCase() !== this.account.toLowerCase()) continue;
+        return {
+          owner: parsed.args.owner,
+          weaponId: Number(parsed.args.weaponId),
+          tier: Number(parsed.args.tier),
+          arenaBonus: Number(parsed.args.arenaBonus),
         };
       } catch {
         // Ignore logs from other contracts in the same transaction.

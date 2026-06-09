@@ -2,6 +2,7 @@
 pragma solidity ^0.8.20;
 
 import "../contracts/GatesOfSogentMarketGame.sol";
+import "../contracts/SogentWeaponNFT.sol";
 
 interface Vm {
     function chainId(uint256 chainId) external;
@@ -11,6 +12,7 @@ interface Vm {
     function prank(address caller) external;
     function startPrank(address caller) external;
     function stopPrank() external;
+    function warp(uint256 newTimestamp) external;
 }
 
 contract MockSomniaAgents is IAgentRequester {
@@ -275,6 +277,107 @@ contract GatesOfSogentMarketGameTest {
         assertEq(game.pendingGateDecision(1), false, "decision should clear");
     }
 
+    function testForgeOrderMintsTradableWeaponNFT() public {
+        requestHero("Aryn");
+        fulfillMarketRequests();
+        earnShards(PLAYER, 1, game.WEAPON_SHARD_COST());
+
+        uint256 shardBalanceBefore = game.shards(PLAYER);
+        vm.prank(PLAYER);
+        uint256 tier = game.startForgeOrder();
+
+        assertEq(tier, 1, "wrong forge tier");
+        assertEq(game.shards(PLAYER), shardBalanceBefore - game.WEAPON_SHARD_COST(), "shards should be spent at start");
+
+        (bool active, uint256 storedTier, uint256 shardCost, uint256 startedAt, uint256 readyAt, uint256 remaining) =
+            game.getForgeOrder(PLAYER);
+        assertEq(active, true, "order should be active");
+        assertEq(storedTier, 1, "wrong stored tier");
+        assertEq(shardCost, game.WEAPON_SHARD_COST(), "wrong shard cost");
+        assertTrue(readyAt > startedAt, "missing cooldown");
+        assertTrue(remaining > 0, "remaining time should be positive");
+
+        vm.expectRevert(bytes("Forge not ready"));
+        vm.prank(PLAYER);
+        game.claimForgeOrder();
+
+        vm.warp(readyAt);
+        vm.prank(PLAYER);
+        uint256 weaponId = game.claimForgeOrder();
+
+        SogentWeaponNFT weaponNFT = SogentWeaponNFT(game.weaponNFTAddress());
+        assertEq(weaponId, 1, "wrong weapon id");
+        assertEq(weaponNFT.ownerOf(weaponId), PLAYER, "wrong weapon owner");
+        assertEq(weaponNFT.weaponTier(weaponId), 1, "wrong weapon tier");
+        assertEq(weaponNFT.weaponArenaBonus(weaponId), 18, "wrong arena bonus");
+        assertEq(game.craftedWeapons(PLAYER), 1, "crafted count should update on claim");
+
+        vm.prank(PLAYER);
+        weaponNFT.transferFrom(PLAYER, PLAYER_TWO, weaponId);
+        assertEq(weaponNFT.ownerOf(weaponId), PLAYER_TWO, "weapon should transfer");
+    }
+
+    function testForgeOrderRequiresShardsAndSingleActiveOrder() public {
+        vm.expectRevert(bytes("Need more shards"));
+        vm.prank(PLAYER);
+        game.startForgeOrder();
+
+        requestHero("Aryn");
+        fulfillMarketRequests();
+        earnShards(PLAYER, 1, game.WEAPON_SHARD_COST() * 2);
+
+        vm.prank(PLAYER);
+        game.startForgeOrder();
+
+        vm.expectRevert(bytes("Forge busy"));
+        vm.prank(PLAYER);
+        game.startForgeOrder();
+    }
+
+    function testEquippedWeaponAffectsArenaPowerOnlyWhileOwned() public {
+        requestHero("Aryn");
+        fulfillMarketRequests();
+        requestHeroFor(PLAYER_TWO, "Bryn");
+        fulfillMarketRequestsFrom(4);
+
+        earnShards(PLAYER, 1, game.WEAPON_SHARD_COST());
+        vm.prank(PLAYER);
+        game.startForgeOrder();
+        (, , , , uint256 readyAt, ) = game.getForgeOrder(PLAYER);
+        vm.warp(readyAt);
+        vm.prank(PLAYER);
+        uint256 weaponId = game.claimForgeOrder();
+
+        uint256 stake = 1 ether;
+        vm.deal(PLAYER, stake * 2);
+        vm.prank(PLAYER);
+        uint256 plainRoomId = game.createArenaRoom{value: stake}(1);
+        (, , , , , uint16 plainPower, , , , ) = game.arenaRooms(plainRoomId);
+        vm.prank(PLAYER);
+        game.cancelArenaRoom(plainRoomId);
+
+        vm.prank(PLAYER);
+        game.equipWeapon(1, weaponId);
+        assertEq(game.getEquippedWeaponBonus(1), 18, "missing equipped weapon bonus");
+
+        vm.prank(PLAYER);
+        uint256 equippedRoomId = game.createArenaRoom{value: stake}(1);
+        (, , , , , uint16 equippedPower, , , , ) = game.arenaRooms(equippedRoomId);
+        assertEq(uint256(equippedPower), uint256(plainPower) + 18, "equipped weapon should add arena power");
+        vm.prank(PLAYER);
+        game.cancelArenaRoom(equippedRoomId);
+
+        SogentWeaponNFT weaponNFT = SogentWeaponNFT(game.weaponNFTAddress());
+        vm.prank(PLAYER);
+        weaponNFT.transferFrom(PLAYER, PLAYER_TWO, weaponId);
+        assertEq(game.getEquippedWeaponBonus(1), 0, "transferred weapon should not count");
+
+        vm.prank(PLAYER);
+        uint256 transferredRoomId = game.createArenaRoom{value: stake}(1);
+        (, , , , , uint16 transferredPower, , , , ) = game.arenaRooms(transferredRoomId);
+        assertEq(uint256(transferredPower), uint256(plainPower), "transferred weapon should not affect arena");
+    }
+
     function testArenaRoomResolvesStakeFight() public {
         requestHero("Aryn");
         fulfillMarketRequests();
@@ -376,6 +479,19 @@ contract GatesOfSogentMarketGameTest {
         vm.deal(player, totalFee);
         vm.prank(player);
         groupId = game.requestHero{value: totalFee}(name);
+    }
+
+    function earnShards(address player, uint256 heroId, uint256 minimumShards) private {
+        for (uint256 attempt = 0; attempt < 16 && game.shards(player) < minimumShards; attempt++) {
+            vm.startPrank(player);
+            game.startGateRun(heroId);
+            for (uint256 step = 0; step < 12 && runIsActive(heroId); step++) {
+                game.resolveGateFloor(heroId);
+            }
+            vm.stopPrank();
+        }
+
+        assertTrue(game.shards(player) >= minimumShards, "test helper could not earn enough shards");
     }
 
     function fulfillMarketRequests() private {

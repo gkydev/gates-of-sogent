@@ -27,15 +27,15 @@ Those values are combined on-chain to create a unique hero.
 
 ## Current Scope
 
-The current version focuses on hero generation, LLM-narrated gate runs, and a minimal forge loop.
+The current version focuses on hero generation, LLM-narrated gate runs, timed forge orders, and arena weapon NFTs.
 
 Contract version:
 
 ```text
-0.5.0-llm-story
+0.6.0-forge-nfts
 ```
 
-Current Somnia Testnet deployment:
+Previous Somnia Testnet deployment:
 
 ```text
 0xF0045108604638ec0c4f986Ff44fCeBB9946607e
@@ -60,7 +60,9 @@ Included:
 - On-chain gate run start/resolve
 - Somnia LLM Inference route + story generation
 - Banked shard tracking
-- Basic weapon crafting hook
+- Timed forge orders
+- ERC721 weapon NFTs
+- Manual weapon equip for arena fights
 - Live event log
 
 ## Contract Testing
@@ -189,7 +191,7 @@ The frontend starts in simulation mode. It has a PixiJS camp where the player ca
 
 You can also paste a deployed `GatesOfSogentMarketGame` contract address and connect a wallet. In Somnia mode, hero recruitment calls `requestHero(name)`, shows the pending Somnia Agent request, and waits for the contract `HeroGenerated` event.
 
-The frontend checks `contractVersion()`, `supportsGateRuns()`, and `supportsForge()` when connecting, so deploy the latest contract in this repo before using the Gate Warden or Blacksmith on-chain.
+The frontend checks `contractVersion()`, `supportsGateRuns()`, `supportsForge()`, and `supportsWeaponNFTs()` when connecting, so deploy the latest contract in this repo before using the Gate Warden or Blacksmith on-chain.
 
 You can prefill the contract field with:
 
@@ -197,7 +199,7 @@ You can prefill the contract field with:
 http://127.0.0.1:4173/index.html?contract=YOUR_CONTRACT_ADDRESS
 ```
 
-The current contract covers hero generation, simple gate runs, banked shards, and a basic weapon crafting hook. Deeper combat, full loot inventories, and NFT equipment are still planned.
+The current contract covers hero generation, simple gate runs, banked shards, timed forge orders, ERC721 weapon minting, NFT transfer, and manual weapon equip for arena fights.
 
 PixiJS is loaded from CDN and pinned to `8.18.1`. ethers is loaded from CDN and pinned to `6.16.0`. No npm install is required.
 
@@ -205,5 +207,5 @@ Planned later:
 
 - Deeper combat
 - Full loot inventory contracts
-- NFT crafting contracts
-- NFT heroes and equipment
+- NFT heroes
+- In-game weapon sale listings

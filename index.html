@@ -4,11 +4,11 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>The Gate of Sogents</title>
-    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' fill='%23070b0c'/%3E%3Cpath d='M12 54V28c0-13 9-22 20-22s20 9 20 22v26h-9V28c0-8-5-14-11-14S21 20 21 28v26z' fill='%2342d6c5'/%3E%3Cpath d='M25 54V31c0-5 3-9 7-9s7 4 7 9v23z' fill='%230f2022'/%3E%3C/svg%3E" />
+    <link rel="icon" type="image/png" href="./public/assets/ui/generated/favicon.png?v=20260609-2" />
     <link rel="stylesheet" href="./styles.css" />
     <script src="https://cdn.jsdelivr.net/npm/pixi.js@8.18.1/dist/pixi.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/ethers@6.16.0/dist/ethers.umd.min.js"></script>
-    <script type="module" src="./src/app.js"></script>
+    <script type="module" src="./src/app.js?v=20260609-demo-fight2"></script>
   </head>
   <body>
     <main class="app-shell">
@@ -30,7 +30,7 @@
 
           <div class="world-overlay">
             <div class="location-tag">
-              <span>Ruined Sogent Camp</span>
+              <span id="location-name">Ruined Sogent Camp</span>
               <strong id="nearby-label">No one nearby</strong>
             </div>
             <button id="talk-button" class="talk-button" type="button" disabled>Talk</button>
@@ -114,6 +114,19 @@
                 <strong id="weapon-name">None</strong>
               </div>
             </div>
+            <div id="forge-status" class="forge-status">Forge: Idle</div>
+            <div id="weapon-list" class="weapon-list"></div>
+            <div class="weapon-actions">
+              <button id="weapon-equip" type="button">Equip</button>
+              <button id="weapon-transfer" type="button" class="quiet-button">Send</button>
+              <input
+                id="weapon-recipient"
+                type="text"
+                placeholder="Recipient wallet"
+                autocomplete="off"
+                spellcheck="false"
+              />
+            </div>
           </section>
 
           <section class="panel arena-panel">
@@ -141,6 +154,7 @@
               />
               <button id="arena-create" type="button">Challenge</button>
               <button id="arena-join" type="button" class="quiet-button">Accept</button>
+              <button id="arena-demo" type="button" class="arena-demo-button">Demo Fight</button>
             </div>
             <p id="arena-message" class="arena-message">Walk down the lower road and talk to the Arena Master.</p>
           </section>

@@ -2,6 +2,7 @@ import {
   CLASS_DEFS,
   WORLD_ASSET,
   ARENA_ASSET,
+  FIGHT_CLOUD_ASSET,
   CAMPFIRE_ASSET,
   CAMPFIRE_NPC_ASSETS,
   PLAYER_SHEET_ASSET,
@@ -11,13 +12,14 @@ import {
   PLAYER_DIRECTIONS,
   NPC_SHEET_IDS,
   STANDALONE_NPC_ASSETS,
-} from "./config.js";
-import { normalizeError } from "./utils.js";
+} from "./config.js?v=20260609-demo-fight2";
+import { normalizeError } from "./utils.js?v=20260609-demo-fight2";
 
 export async function loadTextures({ addEvent } = {}) {
     const result = {
       world: await window.PIXI.Assets.load(WORLD_ASSET),
       arena: null,
+      fightCloud: null,
       campfire: null,
       campfireNpcs: {},
       playerFrames: null,
@@ -29,6 +31,13 @@ export async function loadTextures({ addEvent } = {}) {
       result.arena.source.scaleMode = "nearest";
     } catch (error) {
       addEvent?.("danger", `Arena asset failed to load: ${normalizeError(error)}`);
+    }
+
+    try {
+      result.fightCloud = await window.PIXI.Assets.load(FIGHT_CLOUD_ASSET);
+      result.fightCloud.source.scaleMode = "nearest";
+    } catch (error) {
+      addEvent?.("danger", `Fight cloud failed to load: ${normalizeError(error)}`);
     }
 
     try {

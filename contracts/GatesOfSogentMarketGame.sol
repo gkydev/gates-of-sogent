@@ -4,11 +4,12 @@ pragma solidity ^0.8.20;
 import "./GateAdventureLib.sol";
 import "./ArenaCombatLib.sol";
 import "./SomniaAgents.sol";
+import "./SogentWeaponNFT.sol";
 
 /// @title GatesOfSogentMarketGame
 /// @notice Base prototype: Somnia JSON API Agent fetches market data used to generate hero traits.
 contract GatesOfSogentMarketGame {
-    string public constant GAME_VERSION = "0.5.2-floor-stories";
+    string public constant GAME_VERSION = "0.6.0-forge-nfts";
     uint256 public constant SOMNIA_TESTNET_CHAIN_ID = 50312;
     uint8 public constant REQUEST_MARKET = 1;
     uint8 public constant REQUEST_GATE_DECISION = 2;
@@ -19,6 +20,11 @@ contract GatesOfSogentMarketGame {
     uint256 public constant JSON_FETCH_COST_PER_AGENT = 0.03 ether;
     uint256 public constant LLM_COST_PER_AGENT = 0.07 ether;
     uint256 public constant WEAPON_SHARD_COST = 25;
+    uint256 public constant FORGE_BASE_DURATION = 45 seconds;
+    uint256 public constant FORGE_TIER_DURATION = 15 seconds;
+    uint256 public constant FORGE_MAX_DURATION = 180 seconds;
+    uint256 public constant MAX_WEAPON_BONUS_TIER = 10;
+    uint256 public constant WEAPON_ARENA_BONUS_PER_TIER = 18;
     uint256 public constant MAX_ROUTE_LENGTH = GateAdventureLib.MAX_ROUTE_LENGTH;
     uint256 public constant MAX_STORY_BYTES = GateAdventureLib.MAX_STORY_BYTES;
 
@@ -28,6 +34,8 @@ contract GatesOfSogentMarketGame {
 
     IAgentRequester public constant SOMNIA_AGENTS =
         IAgentRequester(0x037Bb9C718F3f7fe5eCBDB0b600D607b52706776);
+
+    SogentWeaponNFT public immutable weaponNFT;
 
     struct Hero {
         address owner;
@@ -59,6 +67,14 @@ contract GatesOfSogentMarketGame {
         uint256 loot;
     }
 
+    struct ForgeOrder {
+        bool active;
+        uint256 tier;
+        uint256 shardCost;
+        uint256 startedAt;
+        uint256 readyAt;
+    }
+
     struct ArenaRoom {
         address creator;
         address challenger;
@@ -82,6 +98,8 @@ contract GatesOfSogentMarketGame {
     mapping(uint256 => GateRun) public gateRuns;
     mapping(address => uint256) public shards;
     mapping(address => uint256) public craftedWeapons;
+    mapping(address => ForgeOrder) public forgeOrders;
+    mapping(uint256 => uint256) public equippedWeapons;
     mapping(uint256 => PendingHero) public pendingHeroes;
     mapping(uint256 => bool) public pendingRequests;
     mapping(uint256 => uint8) public requestKind;
@@ -128,6 +146,21 @@ contract GatesOfSogentMarketGame {
     );
     event ShardsBanked(address indexed owner, uint256 amount, uint256 balance);
     event WeaponCrafted(address indexed owner, uint256 indexed weaponId, uint256 shardCost);
+    event ForgeOrderStarted(
+        address indexed owner,
+        uint256 indexed tier,
+        uint256 shardCost,
+        uint256 startedAt,
+        uint256 readyAt
+    );
+    event ForgeOrderClaimed(
+        address indexed owner,
+        uint256 indexed weaponId,
+        uint256 indexed tier,
+        uint256 arenaBonus
+    );
+    event WeaponEquipped(uint256 indexed heroId, address indexed owner, uint256 indexed weaponId, uint256 arenaBonus);
+    event WeaponUnequipped(uint256 indexed heroId, address indexed owner, uint256 indexed weaponId);
     event ArenaRoomCreated(uint256 indexed roomId, address indexed creator, uint256 indexed heroId, uint256 stake);
     event ArenaRoomCancelled(uint256 indexed roomId, address indexed creator, uint256 stake);
     event ArenaRoomJoined(uint256 indexed roomId, address indexed challenger, uint256 indexed heroId);
@@ -146,6 +179,10 @@ contract GatesOfSogentMarketGame {
     modifier onlySomniaTestnet() {
         require(block.chainid == SOMNIA_TESTNET_CHAIN_ID, "Use Somnia testnet");
         _;
+    }
+
+    constructor() {
+        weaponNFT = new SogentWeaponNFT(address(this));
     }
 
     function requiredFee() public view returns (uint256) {
@@ -170,6 +207,14 @@ contract GatesOfSogentMarketGame {
 
     function supportsForge() external pure returns (bool) {
         return true;
+    }
+
+    function supportsWeaponNFTs() external pure returns (bool) {
+        return true;
+    }
+
+    function weaponNFTAddress() external view returns (address) {
+        return address(weaponNFT);
     }
 
     function supportsLLMGateDecisions() external pure returns (bool) {
@@ -308,14 +353,75 @@ contract GatesOfSogentMarketGame {
         _resolveGateFloor(heroId, "", false);
     }
 
-    function craftWeapon() external onlySomniaTestnet returns (uint256 weaponId) {
-        require(shards[msg.sender] >= WEAPON_SHARD_COST, "Need more shards");
+    function craftWeapon() external onlySomniaTestnet returns (uint256 tier) {
+        return _startForgeOrder(msg.sender);
+    }
 
-        shards[msg.sender] -= WEAPON_SHARD_COST;
-        craftedWeapons[msg.sender]++;
-        weaponId = craftedWeapons[msg.sender];
+    function startForgeOrder() external onlySomniaTestnet returns (uint256 tier) {
+        return _startForgeOrder(msg.sender);
+    }
 
-        emit WeaponCrafted(msg.sender, weaponId, WEAPON_SHARD_COST);
+    function claimForgeOrder() external onlySomniaTestnet returns (uint256 weaponId) {
+        ForgeOrder memory order = forgeOrders[msg.sender];
+        require(order.active, "No forge order");
+        require(block.timestamp >= order.readyAt, "Forge not ready");
+
+        delete forgeOrders[msg.sender];
+
+        uint256 arenaBonus = _weaponArenaBonus(order.tier);
+        weaponId = weaponNFT.mintWeapon(msg.sender, order.tier, arenaBonus);
+        craftedWeapons[msg.sender] = order.tier;
+
+        emit ForgeOrderClaimed(msg.sender, weaponId, order.tier, arenaBonus);
+        emit WeaponCrafted(msg.sender, weaponId, order.shardCost);
+    }
+
+    function equipWeapon(uint256 heroId, uint256 weaponId) external onlySomniaTestnet {
+        Hero storage hero = heroes[heroId];
+        require(hero.owner == msg.sender, "Not hero owner");
+        require(weaponNFT.ownerOf(weaponId) == msg.sender, "Not weapon owner");
+
+        equippedWeapons[heroId] = weaponId;
+        emit WeaponEquipped(heroId, msg.sender, weaponId, weaponNFT.weaponArenaBonus(weaponId));
+    }
+
+    function unequipWeapon(uint256 heroId) external onlySomniaTestnet {
+        Hero storage hero = heroes[heroId];
+        require(hero.owner == msg.sender, "Not hero owner");
+
+        uint256 weaponId = equippedWeapons[heroId];
+        require(weaponId != 0, "No weapon equipped");
+
+        delete equippedWeapons[heroId];
+        emit WeaponUnequipped(heroId, msg.sender, weaponId);
+    }
+
+    function getEquippedWeaponBonus(uint256 heroId) public view returns (uint256) {
+        Hero storage hero = heroes[heroId];
+        uint256 weaponId = equippedWeapons[heroId];
+        if (hero.owner == address(0) || weaponId == 0) return 0;
+        if (weaponNFT.ownerOf(weaponId) != hero.owner) return 0;
+        return weaponNFT.weaponArenaBonus(weaponId);
+    }
+
+    function forgeDurationFor(address owner) public view returns (uint256) {
+        return _forgeDuration(craftedWeapons[owner] + 1);
+    }
+
+    function getForgeOrder(
+        address owner
+    )
+        external
+        view
+        returns (bool active, uint256 tier, uint256 shardCost, uint256 startedAt, uint256 readyAt, uint256 remaining)
+    {
+        ForgeOrder storage order = forgeOrders[owner];
+        active = order.active;
+        tier = order.tier;
+        shardCost = order.shardCost;
+        startedAt = order.startedAt;
+        readyAt = order.readyAt;
+        remaining = active && readyAt > block.timestamp ? readyAt - block.timestamp : 0;
     }
 
     function supportsArenaRooms() external pure returns (bool) {
@@ -721,6 +827,37 @@ contract GatesOfSogentMarketGame {
         emit ShardsBanked(owner, amount, shards[owner]);
     }
 
+    function _startForgeOrder(address owner) private returns (uint256 tier) {
+        ForgeOrder storage order = forgeOrders[owner];
+        require(!order.active, "Forge busy");
+        require(shards[owner] >= WEAPON_SHARD_COST, "Need more shards");
+
+        tier = craftedWeapons[owner] + 1;
+        uint256 startedAt = block.timestamp;
+        uint256 readyAt = startedAt + _forgeDuration(tier);
+
+        shards[owner] -= WEAPON_SHARD_COST;
+        forgeOrders[owner] = ForgeOrder({
+            active: true,
+            tier: tier,
+            shardCost: WEAPON_SHARD_COST,
+            startedAt: startedAt,
+            readyAt: readyAt
+        });
+
+        emit ForgeOrderStarted(owner, tier, WEAPON_SHARD_COST, startedAt, readyAt);
+    }
+
+    function _forgeDuration(uint256 tier) private pure returns (uint256) {
+        uint256 duration = FORGE_BASE_DURATION + (tier * FORGE_TIER_DURATION);
+        return duration > FORGE_MAX_DURATION ? FORGE_MAX_DURATION : duration;
+    }
+
+    function _weaponArenaBonus(uint256 tier) private pure returns (uint256) {
+        uint256 cappedTier = tier > MAX_WEAPON_BONUS_TIER ? MAX_WEAPON_BONUS_TIER : tier;
+        return cappedTier * WEAPON_ARENA_BONUS_PER_TIER;
+    }
+
     function _emptyAllowedValues() private pure returns (string[] memory allowedValues) {
         allowedValues = new string[](0);
     }
@@ -804,7 +941,7 @@ contract GatesOfSogentMarketGame {
 
     function _arenaPower(uint256 heroId) private view returns (uint16) {
         Hero storage hero = heroes[heroId];
-        return ArenaCombatLib.power(hero.rarity, hero.bravery, hero.greed, hero.wisdom, craftedWeapons[hero.owner]);
+        return ArenaCombatLib.power(hero.rarity, hero.bravery, hero.greed, hero.wisdom, getEquippedWeaponBonus(heroId));
     }
 
     function _arenaFightSystem() private pure returns (string memory) {

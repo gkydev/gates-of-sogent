@@ -621,6 +621,95 @@ h2 {
   color: var(--amber);
 }
 
+.forge-status {
+  margin-top: 8px;
+  border: 1px solid var(--line-soft);
+  border-radius: 5px;
+  background: #0f1415;
+  padding: 8px 9px;
+  color: var(--muted);
+  font-size: 0.8rem;
+  line-height: 1.35;
+}
+
+.forge-status.is-working {
+  border-color: rgba(66, 214, 197, 0.52);
+  color: var(--teal);
+}
+
+.forge-status.is-ready {
+  border-color: rgba(240, 169, 75, 0.68);
+  color: var(--amber);
+}
+
+.weapon-list {
+  display: grid;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.weapon-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  border: 1px solid var(--line-soft);
+  border-radius: 5px;
+  background: #0b0f10;
+  padding: 7px 8px;
+  color: #dfe7dd;
+  text-align: left;
+}
+
+.weapon-item strong,
+.weapon-item span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.weapon-item strong {
+  color: #fff4cf;
+}
+
+.weapon-item span {
+  color: var(--teal);
+  font-size: 0.74rem;
+}
+
+.weapon-item.is-selected {
+  border-color: rgba(240, 169, 75, 0.82);
+}
+
+.weapon-item.is-equipped strong::after {
+  color: var(--teal);
+  content: " equipped";
+  font-size: 0.72rem;
+  font-weight: 400;
+}
+
+.weapon-empty {
+  border: 1px dashed var(--line-soft);
+  border-radius: 5px;
+  padding: 11px 8px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  text-align: center;
+}
+
+.weapon-actions {
+  display: grid;
+  grid-template-columns: 76px 76px minmax(0, 1fr);
+  gap: 7px;
+  margin-top: 8px;
+}
+
+.weapon-actions button,
+.weapon-actions input {
+  min-width: 0;
+}
+
 .contract-grid {
   margin: 0;
   grid-template-columns: 1fr;
@@ -646,6 +735,10 @@ h2 {
 
 .arena-form button {
   width: 100%;
+}
+
+.arena-demo-button {
+  grid-column: 1 / -1;
 }
 
 .arena-message {
@@ -957,6 +1050,7 @@ h2 {
   .inventory-grid,
   .arena-form,
   .recruit-form,
+  .weapon-actions,
   .wallet-actions {
     grid-template-columns: 1fr;
   }

@@ -2,5 +2,6 @@ node_modules/
 out/
 cache/
 broadcast/
+local_artifacts/
 .env
 .DS_Store
