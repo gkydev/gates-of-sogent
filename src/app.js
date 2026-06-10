@@ -15,10 +15,10 @@ import {
   SCENE_CONFIG,
   DEFAULT_NAMES,
   PLAYER_DIRECTION_Y_OFFSETS,
-} from "./config.js?v=20260610-arena7";
-import { loadTextures } from "./assets.js?v=20260610-arena7";
-import { SimulationGameAdapter, SomniaContractAdapter } from "./adapters.js?v=20260610-arena7";
-import { clamp, formatTime, getClass, getHeroPortrait, normalizeError, shortAddress } from "./utils.js?v=20260610-arena7";
+} from "./config.js?v=20260610-collision3";
+import { loadTextures } from "./assets.js?v=20260610-collision3";
+import { SimulationGameAdapter, SomniaContractAdapter } from "./adapters.js?v=20260610-collision3";
+import { clamp, formatTime, getClass, getHeroPortrait, normalizeError, shortAddress } from "./utils.js?v=20260610-collision3";
 
 const elements = {
     appShell: document.querySelector("#app-shell"),
@@ -460,7 +460,7 @@ const elements = {
       state.player.moving = false;
       const npc = state.player.queuedNpcId ? getCurrentNpcs().find((item) => item.id === state.player.queuedNpcId) : null;
       clearAutoMove();
-      if (npc && Math.hypot(state.player.x - npc.x, state.player.y - npc.y) <= INTERACT_DISTANCE + 12) {
+      if (npc && Math.hypot(state.player.x - npc.x, state.player.y - npc.y) <= getNpcInteractDistance(npc) + 12) {
         state.nearbyNpcId = npc.id;
         openDialogue(npc);
       }
@@ -1458,7 +1458,7 @@ const elements = {
 
   function handleNpcTap(npc) {
     const distance = Math.hypot(state.player.x - npc.x, state.player.y - npc.y);
-    if (distance <= INTERACT_DISTANCE) {
+    if (distance <= getNpcInteractDistance(npc)) {
       clearAutoMove();
       state.nearbyNpcId = npc.id;
       openDialogue(npc);
@@ -1591,6 +1591,13 @@ const elements = {
     if (npcId === "camp-mira" || npcId === "camp-brann") {
       const npc = getActiveNpc();
       addEvent("system", npc?.actionEvent || "The campfire crackles under the ruined wall.");
+      renderAll();
+      return;
+    }
+
+    if (npcId === "sogent-gate") {
+      const npc = getActiveNpc();
+      addEvent("system", npc?.actionEvent || "The Gate of Sogent hums beneath the ruined arch.");
       renderAll();
       return;
     }
@@ -3063,12 +3070,17 @@ const elements = {
     let closestDistance = Infinity;
     getCurrentNpcs().forEach((npc) => {
       const distance = Math.hypot(x - npc.x, y - npc.y);
-      if (distance < closestDistance) {
+      const interactionDistance = Math.max(maxDistance, getNpcInteractDistance(npc));
+      if (distance <= interactionDistance && distance < closestDistance) {
         closest = npc;
         closestDistance = distance;
       }
     });
-    return closestDistance <= maxDistance ? closest : null;
+    return closest;
+  }
+
+  function getNpcInteractDistance(npc) {
+    return npc.interactDistance || INTERACT_DISTANCE;
   }
 
   function getSelectedHero() {

@@ -12,8 +12,8 @@ import {
   PLAYER_DIRECTIONS,
   NPC_SHEET_IDS,
   STANDALONE_NPC_ASSETS,
-} from "./config.js?v=20260610-arena7";
-import { normalizeError } from "./utils.js?v=20260610-arena7";
+} from "./config.js?v=20260610-collision3";
+import { normalizeError } from "./utils.js?v=20260610-collision3";
 
 export async function loadTextures({ addEvent } = {}) {
     const result = {

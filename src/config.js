@@ -255,6 +255,7 @@ export const NPCS = [
       label: "Listen",
       dialogue: "The fire keeps the gate-whispers quiet. For a while.",
       actionEvent: "Mira watches the flames and marks a safe path through the ruins.",
+      approach: { x: 60, y: 54 },
     },
     {
       id: "camp-brann",
@@ -267,6 +268,25 @@ export const NPCS = [
       label: "Listen",
       dialogue: "If the gate starts singing, do not answer it.",
       actionEvent: "Brann warms his gauntlets and mutters about the last patrol.",
+      approach: { x: 24, y: 54 },
+    },
+    {
+      id: "sogent-gate",
+      name: "Gate of Sogent",
+      tag: "Gate of Sogent",
+      hiddenSprite: true,
+      x: 512,
+      y: 166,
+      color: 0x42d6c5,
+      label: "Listen",
+      dialogue:
+        "The arch exhales a cold blue whoosh. Beyond it, the Gate of Sogent hums like a deep road waiting for a named hero.",
+      actionEvent: "The Gate of Sogent answers with a low whoosh, then falls back into its hungry blue hum.",
+      approach: { x: -117, y: 14 },
+      interactDistance: 130,
+      labelY: -66,
+      hitY: -86,
+      hitHeight: 126,
     },
     {
       id: "guildmaster",
@@ -318,6 +338,7 @@ export const NPCS = [
       color: 0xb8a27c,
       label: "Forge Weapon",
       dialogue: "I can turn banked gate shards into a weapon for the selected hero.",
+      approach: { x: 0, y: 64 },
     },
     {
       id: "arena-master",
@@ -336,12 +357,30 @@ export const NPCS = [
   ];
 
 export const OBSTACLES = [
-    { x: 0, y: 0, w: 1024, h: 122 },
-    { x: 270, y: 110, w: 482, h: 172 },
-    { x: 70, y: 160, w: 120, h: 112 },
-    { x: 833, y: 160, w: 120, h: 112 },
-    { x: 80, y: 474, w: 138, h: 86 },
-    { x: 770, y: 502, w: 164, h: 60 },
+    { name: "west perimeter wall", x: 0, y: 0, w: 42, h: 640 },
+    { name: "east perimeter wall", x: 982, y: 0, w: 42, h: 640 },
+    { name: "northwest cliff wall", x: 0, y: 0, w: 338, h: 94 },
+    { name: "northeast cliff wall", x: 688, y: 0, w: 336, h: 94 },
+    { name: "portal left ruins", x: 292, y: 42, w: 116, h: 126 },
+    { name: "portal arch", x: 424, y: 0, w: 176, h: 142 },
+    { name: "portal right ruins", x: 616, y: 42, w: 116, h: 126 },
+    { name: "portal stair lip", x: 452, y: 142, w: 120, h: 22 },
+    { name: "left camp tent", x: 52, y: 145, w: 140, h: 112 },
+    { name: "left tent barrels", x: 42, y: 252, w: 74, h: 28 },
+    { name: "oracle table", x: 416, y: 218, w: 176, h: 48 },
+    { name: "oracle left post", x: 416, y: 196, w: 14, h: 72 },
+    { name: "oracle right post", x: 582, y: 196, w: 14, h: 72 },
+    { name: "right camp tent", x: 824, y: 144, w: 116, h: 110 },
+    { name: "right camp fence", x: 760, y: 214, w: 208, h: 96 },
+    { name: "right camp crates", x: 788, y: 292, w: 94, h: 30 },
+    { name: "guild crate stack", x: 35, y: 366, w: 102, h: 94 },
+    { name: "guild stone wall", x: 126, y: 358, w: 132, h: 53 },
+    { name: "guild barrels", x: 232, y: 418, w: 45, h: 48 },
+    { name: "forge furnace", x: 736, y: 352, w: 78, h: 100 },
+    { name: "forge workbench", x: 822, y: 376, w: 118, h: 72 },
+    { name: "forge anvil", x: 732, y: 452, w: 84, h: 36 },
+    { name: "forge fence", x: 902, y: 368, w: 60, h: 95 },
+    { name: "forge barrel rack", x: 682, y: 392, w: 38, h: 66 },
   ];
 
 export const ARENA_OBSTACLES = [
@@ -359,7 +398,7 @@ export const SCENE_CONFIG = {
     camp: {
       name: "Ruined Sogent Camp",
       textureKey: "world",
-      bounds: { minX: 34, minY: 148, maxX: PIXI_WIDTH - 34, maxY: PIXI_HEIGHT - 36 },
+      bounds: { minX: 34, minY: 96, maxX: PIXI_WIDTH - 34, maxY: PIXI_HEIGHT - 36 },
       obstacles: OBSTACLES,
       exits: [
         {
