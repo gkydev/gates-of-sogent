@@ -1,4 +1,4 @@
-import { CLASS_DEFS, FNV_OFFSET, FNV_PRIME, HERO_PORTRAITS, MASK_64 } from "./config.js?v=20260610-portrait2";
+import { CLASS_DEFS, FNV_OFFSET, FNV_PRIME, HERO_PORTRAITS, MASK_64 } from "./config.js?v=20260610-forge3";
 
 export function getClass(classId) {
     return CLASS_DEFS.find((item) => item.id === classId) || CLASS_DEFS[0];

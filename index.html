@@ -5,10 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>The Gate of Sogents</title>
     <link rel="icon" type="image/png" href="./public/assets/ui/generated/favicon.png?v=20260609-2" />
-    <link rel="stylesheet" href="./styles.css?v=20260610-portrait2" />
+    <link rel="stylesheet" href="./styles.css?v=20260610-forge3" />
     <script src="https://cdn.jsdelivr.net/npm/pixi.js@8.18.1/dist/pixi.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/ethers@6.16.0/dist/ethers.umd.min.js"></script>
-    <script type="module" src="./src/app.js?v=20260610-portrait2"></script>
+    <script type="module" src="./src/app.js?v=20260610-forge3"></script>
   </head>
   <body>
     <main id="app-shell" class="app-shell">
@@ -141,8 +141,7 @@
               </div>
 
               <div id="screen-blacksmith" class="game-screen-page">
-                <div class="panel-heading">
-                  <h3>Forge</h3>
+                <div class="panel-heading forge-heading">
                   <span><span id="weapon-count">0</span> weapons</span>
                 </div>
                 <div class="forge-summary">
@@ -158,7 +157,7 @@
                   </div>
                 </div>
                 <div class="forge-order">
-                  <div id="forge-status" class="forge-status">Forge: Idle</div>
+                  <div id="forge-status" class="forge-status">Idle</div>
                   <button id="forge-action" type="button" class="forge-action">Start Order</button>
                 </div>
                 <div id="weapon-list" class="weapon-list"></div>

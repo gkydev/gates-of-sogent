@@ -15,10 +15,10 @@ import {
   SCENE_CONFIG,
   DEFAULT_NAMES,
   PLAYER_DIRECTION_Y_OFFSETS,
-} from "./config.js?v=20260610-portrait2";
-import { loadTextures } from "./assets.js?v=20260610-portrait2";
-import { SimulationGameAdapter, SomniaContractAdapter } from "./adapters.js?v=20260610-portrait2";
-import { clamp, formatTime, getClass, getHeroPortrait, normalizeError, shortAddress } from "./utils.js?v=20260610-portrait2";
+} from "./config.js?v=20260610-forge3";
+import { loadTextures } from "./assets.js?v=20260610-forge3";
+import { SimulationGameAdapter, SomniaContractAdapter } from "./adapters.js?v=20260610-forge3";
+import { clamp, formatTime, getClass, getHeroPortrait, normalizeError, shortAddress } from "./utils.js?v=20260610-forge3";
 
 const elements = {
     appShell: document.querySelector("#app-shell"),
@@ -2018,11 +2018,11 @@ const elements = {
     const portraits = {
       "camp-mira": "./public/assets/ui/dialogue-portraits/mira.png",
       "camp-brann": "./public/assets/ui/dialogue-portraits/brann.png",
-      "sogent-gate": "./public/assets/ui/dialogue-portraits/sogent-gate.png?v=20260610-portrait2",
-      recruiter: "./public/assets/ui/dialogue-portraits/recruiter.png?v=20260610-portrait2",
+      "sogent-gate": "./public/assets/ui/dialogue-portraits/sogent-gate.png?v=20260610-forge3",
+      recruiter: "./public/assets/ui/dialogue-portraits/recruiter.png?v=20260610-forge3",
       guildmaster: "./public/assets/ui/dialogue-portraits/guildmaster.png?v=20260604-11",
-      oracle: "./public/assets/ui/dialogue-portraits/oracle.png?v=20260610-portrait2",
-      warden: "./public/assets/ui/dialogue-portraits/warden.png?v=20260610-portrait2",
+      oracle: "./public/assets/ui/dialogue-portraits/oracle.png?v=20260610-forge3",
+      warden: "./public/assets/ui/dialogue-portraits/warden.png?v=20260610-forge3",
       blacksmith: "./public/assets/ui/dialogue-portraits/blacksmith.png",
       "arena-master": "./public/assets/ui/dialogue-portraits/arena-master.png",
     };
@@ -2190,7 +2190,7 @@ const elements = {
     const order = inventory.forgeOrder;
     elements.forgeStatus.classList.remove("is-working", "is-ready");
     if (!order?.active) {
-      elements.forgeStatus.textContent = "Forge: Idle";
+      elements.forgeStatus.textContent = "Idle";
       elements.forgeAction.textContent = `Start Order (${inventory.forgeCost || state.forgeCost} shards)`;
       elements.forgeAction.disabled = state.connection.busy || inventory.shards < (inventory.forgeCost || state.forgeCost);
       return;
@@ -2205,9 +2205,24 @@ const elements = {
       return;
     }
 
-    elements.forgeStatus.textContent = `Forge working... ${formatCountdown(remaining)}`;
+    const icon = document.createElement("img");
+    icon.className = "forge-work-icon";
+    icon.src = "./public/assets/ui/generated/forge-work-icon.png?v=20260610-forge3";
+    icon.alt = "";
+    icon.decoding = "async";
+    icon.setAttribute("aria-hidden", "true");
+
+    const copy = document.createElement("span");
+    copy.className = "forge-status-copy";
+    const title = document.createElement("strong");
+    title.textContent = `Forging Shard Blade ${order.tier}`;
+    const detail = document.createElement("span");
+    detail.textContent = `${formatCountdown(remaining)} remaining`;
+    copy.append(title, detail);
+
+    elements.forgeStatus.replaceChildren(icon, copy);
     elements.forgeStatus.classList.add("is-working");
-    elements.forgeAction.textContent = "Forge Working";
+    elements.forgeAction.textContent = "Working";
     elements.forgeAction.disabled = true;
   }
 
