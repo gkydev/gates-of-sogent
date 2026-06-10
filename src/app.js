@@ -15,10 +15,10 @@ import {
   SCENE_CONFIG,
   DEFAULT_NAMES,
   PLAYER_DIRECTION_Y_OFFSETS,
-} from "./config.js?v=20260610-dialogue2";
-import { loadTextures } from "./assets.js?v=20260610-dialogue2";
-import { SimulationGameAdapter, SomniaContractAdapter } from "./adapters.js?v=20260610-dialogue2";
-import { clamp, formatTime, getClass, getHeroPortrait, normalizeError, shortAddress } from "./utils.js?v=20260610-dialogue2";
+} from "./config.js?v=20260610-portrait1";
+import { loadTextures } from "./assets.js?v=20260610-portrait1";
+import { SimulationGameAdapter, SomniaContractAdapter } from "./adapters.js?v=20260610-portrait1";
+import { clamp, formatTime, getClass, getHeroPortrait, normalizeError, shortAddress } from "./utils.js?v=20260610-portrait1";
 
 const elements = {
     appShell: document.querySelector("#app-shell"),
@@ -2018,11 +2018,11 @@ const elements = {
     const portraits = {
       "camp-mira": "./public/assets/ui/dialogue-portraits/mira.png",
       "camp-brann": "./public/assets/ui/dialogue-portraits/brann.png",
-      "sogent-gate": "./public/assets/ui/dialogue-portraits/sogent-gate.png?v=20260610-dialogue2",
-      recruiter: "./public/assets/ui/dialogue-portraits/recruiter.png?v=20260610-dialogue2",
+      "sogent-gate": "./public/assets/ui/dialogue-portraits/sogent-gate.png?v=20260610-portrait1",
+      recruiter: "./public/assets/ui/dialogue-portraits/recruiter.png?v=20260610-portrait1",
       guildmaster: "./public/assets/ui/dialogue-portraits/guildmaster.png?v=20260604-11",
       oracle: "./public/assets/ui/dialogue-portraits/oracle.png?v=20260604-2",
-      warden: "./public/assets/ui/dialogue-portraits/warden.png?v=20260610-dialogue2",
+      warden: "./public/assets/ui/dialogue-portraits/warden.png?v=20260610-portrait1",
       blacksmith: "./public/assets/ui/dialogue-portraits/blacksmith.png",
       "arena-master": "./public/assets/ui/dialogue-portraits/arena-master.png",
     };

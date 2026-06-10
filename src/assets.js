@@ -12,8 +12,8 @@ import {
   PLAYER_DIRECTIONS,
   NPC_SHEET_IDS,
   STANDALONE_NPC_ASSETS,
-} from "./config.js?v=20260610-dialogue2";
-import { normalizeError } from "./utils.js?v=20260610-dialogue2";
+} from "./config.js?v=20260610-portrait1";
+import { normalizeError } from "./utils.js?v=20260610-portrait1";
 
 export async function loadTextures({ addEvent } = {}) {
     const result = {
@@ -125,10 +125,7 @@ export async function loadTextures({ addEvent } = {}) {
     const image = await loadImage(src);
     const frameWidth = Math.floor(image.width / NPC_SHEET_IDS.length);
     const frameHeight = image.height;
-    const prepared = {};
     const npcs = {};
-    let maxWidth = 1;
-    let maxHeight = 1;
 
     NPC_SHEET_IDS.forEach((id, col) => {
       const canvas = document.createElement("canvas");
@@ -138,18 +135,7 @@ export async function loadTextures({ addEvent } = {}) {
       ctx.imageSmoothingEnabled = false;
       ctx.drawImage(image, col * frameWidth, 0, frameWidth, frameHeight, 0, 0, frameWidth, frameHeight);
       removeGreenScreen(canvas);
-      keepLargestAlphaComponent(canvas);
-      const cropped = cropAlphaCanvas(canvas, 8);
-      maxWidth = Math.max(maxWidth, cropped.width);
-      maxHeight = Math.max(maxHeight, cropped.height);
-      prepared[id] = cropped;
-    });
-
-    const normalizedWidth = maxWidth + 16;
-    const normalizedHeight = maxHeight + 8;
-
-    NPC_SHEET_IDS.forEach((id) => {
-      const texture = window.PIXI.Texture.from(normalizeSpriteFrame(prepared[id], normalizedWidth, normalizedHeight));
+      const texture = window.PIXI.Texture.from(cropAlphaCanvas(canvas, 8));
       texture.source.scaleMode = "nearest";
       npcs[id] = texture;
     });
@@ -203,13 +189,11 @@ export async function loadTextures({ addEvent } = {}) {
       const blue = pixels[i + 2];
       const strongestNonGreen = Math.max(red, blue);
       const greenLead = green - strongestNonGreen;
-      const redBlueDelta = Math.abs(red - blue);
       const isBrightKey = green > 115 && greenLead > 34 && green > red * 1.35 && green > blue * 1.24;
       const isDarkKeyEdge = green > 32 && greenLead > 20 && red < 72 && blue < 82;
-      const isPurpleKeyEdge = red > 90 && blue > 90 && green < 76 && redBlueDelta < 70;
-      const isKeyColor = isBrightKey || isDarkKeyEdge || isPurpleKeyEdge;
+      const isKeyGreen = isBrightKey || isDarkKeyEdge;
 
-      if (isKeyColor) {
+      if (isKeyGreen) {
         pixels[i + 3] = 0;
       } else if (greenLead > 8 && green > 80) {
         pixels[i + 1] = Math.max(green - Math.min(24, greenLead), strongestNonGreen);
@@ -282,7 +266,7 @@ export async function loadTextures({ addEvent } = {}) {
     const red = pixels[offset];
     const green = pixels[offset + 1];
     const blue = pixels[offset + 2];
-    return alpha > 32 && !isKeyColorResidue(red, green, blue);
+    return alpha > 32 && !isGreenKeyResidue(red, green, blue);
   }
 
   function cropAlphaCanvas(canvas, padding = 0) {
@@ -300,7 +284,7 @@ export async function loadTextures({ addEvent } = {}) {
         const red = pixels[(y * canvas.width + x) * 4];
         const green = pixels[(y * canvas.width + x) * 4 + 1];
         const blue = pixels[(y * canvas.width + x) * 4 + 2];
-        if (alpha <= 32 || isKeyColorResidue(red, green, blue)) continue;
+        if (alpha <= 32 || isGreenKeyResidue(red, green, blue)) continue;
         minX = Math.min(minX, x);
         minY = Math.min(minY, y);
         maxX = Math.max(maxX, x);
@@ -324,9 +308,7 @@ export async function loadTextures({ addEvent } = {}) {
     return cropped;
   }
 
-  function isKeyColorResidue(red, green, blue) {
+  function isGreenKeyResidue(red, green, blue) {
     const strongestNonGreen = Math.max(red, blue);
-    const isGreenResidue = green > 32 && green - strongestNonGreen > 18 && green > red * 1.18 && green > blue * 1.12;
-    const isPurpleResidue = red > 90 && blue > 90 && green < 76 && Math.abs(red - blue) < 70;
-    return isGreenResidue || isPurpleResidue;
+    return green > 32 && green - strongestNonGreen > 18 && green > red * 1.18 && green > blue * 1.12;
   }
