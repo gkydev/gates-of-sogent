@@ -5,3 +5,4 @@ broadcast/
 local_artifacts/
 .env
 .DS_Store
+public/assets/presentation/

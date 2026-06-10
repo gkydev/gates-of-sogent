@@ -12,8 +12,8 @@ import {
   PLAYER_DIRECTIONS,
   NPC_SHEET_IDS,
   STANDALONE_NPC_ASSETS,
-} from "./config.js?v=20260610-portrait1";
-import { normalizeError } from "./utils.js?v=20260610-portrait1";
+} from "./config.js?v=20260610-portrait2";
+import { normalizeError } from "./utils.js?v=20260610-portrait2";
 
 export async function loadTextures({ addEvent } = {}) {
     const result = {
