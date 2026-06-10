@@ -327,6 +327,7 @@ export const NPCS = [
       skin: "warden",
       x: 594,
       y: 214,
+      markerY: -108,
       color: 0xf0a94b,
       label: "Challenge",
       dialogue: "Post a wager, challenge another hero, and let the arena settle the winner on-chain.",

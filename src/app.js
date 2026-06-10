@@ -15,10 +15,10 @@ import {
   SCENE_CONFIG,
   DEFAULT_NAMES,
   PLAYER_DIRECTION_Y_OFFSETS,
-} from "./config.js?v=20260610-roster1";
-import { loadTextures } from "./assets.js?v=20260610-roster1";
-import { SimulationGameAdapter, SomniaContractAdapter } from "./adapters.js?v=20260610-roster1";
-import { clamp, formatTime, getClass, getHeroPortrait, normalizeError, shortAddress } from "./utils.js?v=20260610-roster1";
+} from "./config.js?v=20260610-arena7";
+import { loadTextures } from "./assets.js?v=20260610-arena7";
+import { SimulationGameAdapter, SomniaContractAdapter } from "./adapters.js?v=20260610-arena7";
+import { clamp, formatTime, getClass, getHeroPortrait, normalizeError, shortAddress } from "./utils.js?v=20260610-arena7";
 
 const elements = {
     appShell: document.querySelector("#app-shell"),
@@ -71,6 +71,12 @@ const elements = {
     weaponEquip: document.querySelector("#weapon-equip"),
     weaponTransfer: document.querySelector("#weapon-transfer"),
     weaponRecipient: document.querySelector("#weapon-recipient"),
+    arenaChoice: document.querySelector("#arena-choice"),
+    arenaModeCreate: document.querySelector("#arena-mode-create"),
+    arenaModeJoin: document.querySelector("#arena-mode-join"),
+    arenaCreatePanel: document.querySelector("#arena-create-panel"),
+    arenaJoinPanel: document.querySelector("#arena-join-panel"),
+    arenaBackButtons: Array.from(document.querySelectorAll(".arena-back")),
     arenaStake: document.querySelector("#arena-stake"),
     arenaRoomId: document.querySelector("#arena-room-id"),
     arenaCreate: document.querySelector("#arena-create"),
@@ -94,6 +100,7 @@ const elements = {
     touchMoves: new Set(),
     seenStories: new Set(),
     arena: {
+      mode: "menu",
       lastRoomId: null,
       lastFight: null,
       pendingStoryRoomId: null,
@@ -137,6 +144,7 @@ const elements = {
     frameId: null,
     text: "",
   };
+  let arenaRoomSyncTimer = null;
 
   document.addEventListener("DOMContentLoaded", init);
 
@@ -209,6 +217,21 @@ const elements = {
     elements.storyText.addEventListener("click", finishStoryAnimation);
     elements.gameScreenClose.addEventListener("click", closeGameScreen);
     elements.chronicleOpen.addEventListener("click", () => openGameScreen("chronicle"));
+    elements.arenaModeCreate.addEventListener("click", () => {
+      state.arena.mode = "create";
+      renderArena();
+    });
+    elements.arenaModeJoin.addEventListener("click", () => {
+      state.arena.mode = "join";
+      renderArena();
+      queueArenaRoomSync();
+    });
+    elements.arenaBackButtons.forEach((button) => {
+      button.addEventListener("click", () => {
+        state.arena.mode = "menu";
+        renderArena();
+      });
+    });
     elements.arenaCreate.addEventListener("click", () => {
       void createArenaRoomFromInput();
     });
@@ -225,7 +248,10 @@ const elements = {
       void transferSelectedWeapon();
     });
     elements.arenaStake.addEventListener("input", renderArena);
-    elements.arenaRoomId.addEventListener("input", renderAll);
+    elements.arenaRoomId.addEventListener("input", () => {
+      renderAll();
+      queueArenaRoomSync();
+    });
     elements.dialogueAction.addEventListener("click", () => {
       const npc = getActiveNpc();
       if (npc) {
@@ -350,11 +376,15 @@ const elements = {
     const floatingLayer = new PIXI.Container();
     const playerLabel = buildWorldLabel("Wanderer", CLASS_DEFS[0].color);
     const gateStatusLabel = buildWorldLabel("Gate Dormant", 0x42d6c5);
-    const storyMarker = buildStoryMarker();
+    const attentionMarkers = new Map([
+      ["warden", buildStoryMarker()],
+      ["arena-master", buildStoryMarker()],
+    ]);
+    const storyMarker = attentionMarkers.get("warden");
     gateStatusLabel.x = 512;
     gateStatusLabel.y = 42;
     groundFxLayer.addChild(destinationMarker, interactRing);
-    fxLayer.addChild(lightFx, gateFx, campfireFx, storyMarker, playerLabel, gateStatusLabel, floatingLayer);
+    fxLayer.addChild(lightFx, gateFx, campfireFx, ...attentionMarkers.values(), playerLabel, gateStatusLabel, floatingLayer);
 
     pixi = {
       app,
@@ -366,6 +396,7 @@ const elements = {
       playerLabel,
       gateStatusLabel,
       storyMarker,
+      attentionMarkers,
       gateFx,
       campfireFx,
       lightFx,
@@ -790,27 +821,34 @@ const elements = {
   }
 
   function updateStoryMarker() {
-    if (!pixi?.storyMarker) return;
-    if (state.scene !== "camp") {
-      pixi.storyMarker.visible = false;
-      return;
-    }
+    if (!pixi?.attentionMarkers) return;
 
-      const hero = getSelectedHero();
+    const hero = getSelectedHero();
     const story = hero ? getUnreadAdventureStory(hero.id) : null;
     const run = hero ? adapter.getRun(hero.id) : null;
-    const warden = NPCS.find((npc) => npc.id === "warden");
+    const showWardenMarker = Boolean(state.scene === "camp" && story && !run?.active);
+    updateNpcAttentionMarker("warden", showWardenMarker);
 
-    if (!story || run?.active || !warden) {
-      pixi.storyMarker.visible = false;
+    const roomId = Number(elements.arenaRoomId.value.trim() || state.arena.lastRoomId || 0);
+    const arenaStory = roomId ? getUnreadArenaStory(roomId) : null;
+    const showArenaMarker = Boolean(state.scene === "arena" && arenaStory);
+    updateNpcAttentionMarker("arena-master", showArenaMarker);
+  }
+
+  function updateNpcAttentionMarker(npcId, visible) {
+    const marker = pixi.attentionMarkers.get(npcId);
+    if (!marker) return;
+    const npc = NPCS.find((item) => item.id === npcId);
+    if (!visible || !npc || !isNpcInCurrentScene(npc)) {
+      marker.visible = false;
       return;
     }
 
-    pixi.storyMarker.visible = true;
-    pixi.storyMarker.x = warden.x;
-    pixi.storyMarker.y = warden.y - 112 + Math.sin(pixi.portalPulse * 3.1) * 6;
-    pixi.storyMarker.rotation = Math.sin(pixi.portalPulse * 2.4) * 0.06;
-    pixi.storyMarker.scale.set(1 + Math.sin(pixi.portalPulse * 4.2) * 0.08);
+    marker.visible = true;
+    marker.x = npc.x;
+    marker.y = npc.y + (npc.markerY ?? (npc.hiddenSprite ? -68 : -112)) + Math.sin(pixi.portalPulse * 3.1) * 6;
+    marker.rotation = Math.sin(pixi.portalPulse * 2.4) * 0.06;
+    marker.scale.set(1 + Math.sin(pixi.portalPulse * 4.2) * 0.08);
   }
 
   function spawnFloatingEvent(type, message) {
@@ -1495,6 +1533,7 @@ const elements = {
       page.classList.toggle("is-active", page.id === `screen-${screenId}`);
     });
     elements.gameScreen.classList.remove("is-hidden");
+    if (screenId === "arena") queueArenaRoomSync();
     renderAll();
   }
 
@@ -1516,7 +1555,9 @@ const elements = {
     elements.storyTitle.textContent = `Challenge ${roomId} Legend`;
     elements.storySource.textContent = "Arena Master's Chronicle";
     elements.storyModal.classList.remove("is-hidden");
-    startStoryAnimation(cleanLegendText(story.story || story));
+    const fight = state.arena.lastFight?.roomId === Number(roomId) ? state.arena.lastFight : null;
+    const resultLine = fight ? `${arenaFightMessage(fight)}\n\n` : "";
+    startStoryAnimation(`${resultLine}${cleanLegendText(story.story || story)}`);
   }
 
   function closeStoryModal() {
@@ -1745,6 +1786,7 @@ const elements = {
           state.arena.createdChallengeOwners.set(Number(result.roomId), state.connection.wallet.toLowerCase());
         }
         elements.arenaRoomId.value = String(result.roomId);
+        state.arena.mode = "join";
       }
       state.connection.message =
         state.connection.mode === "somnia"
@@ -1784,8 +1826,10 @@ const elements = {
     try {
       const result = await adapter.joinArenaRoom(hero, roomId);
       state.arena.lastRoomId = Number(roomId);
+      state.arena.mode = "menu";
       if (result.fight) {
-        state.arena.lastFight = result.fight;
+        state.arena.lastFight = decorateArenaFight(result.fight);
+        closeGameScreen();
         spawnArenaFightAnimation(result.fight);
       }
       if (result.story) {
@@ -1793,6 +1837,7 @@ const elements = {
       } else if (result.pendingNarration) {
         state.arena.pendingStoryRoomId = Number(roomId);
       }
+      void syncArenaRoomResult(roomId);
       state.connection.message =
         state.connection.mode === "somnia" ? "Arena fight confirmed. The Master is writing the chronicle." : "Simulation arena fight resolved.";
       result.events.forEach((item) => addEvent(item.type, item.message));
@@ -1848,9 +1893,10 @@ const elements = {
 
       const result = await adapter.joinArenaRoom(challenger, roomId);
       state.selectedHeroId = challenger.id;
-      state.arena.lastFight = result.fight || null;
+      state.arena.lastFight = result.fight ? decorateArenaFight(result.fight) : null;
       clearFloatingTexts();
       if (result.fight) {
+        closeGameScreen();
         spawnArenaFightAnimation(result.fight);
       }
       if (result.story || result.pendingNarration) {
@@ -2188,6 +2234,7 @@ const elements = {
 
     elements.weaponEquip.disabled = state.connection.busy || !hero || !state.selectedWeaponId;
     elements.weaponTransfer.disabled = state.connection.busy || !state.selectedWeaponId;
+    elements.weaponRecipient.disabled = state.connection.busy || !state.selectedWeaponId;
   }
 
   function formatCountdown(ms) {
@@ -2197,11 +2244,100 @@ const elements = {
     return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
   }
 
+  function queueArenaRoomSync() {
+    if (arenaRoomSyncTimer) {
+      clearTimeout(arenaRoomSyncTimer);
+    }
+    arenaRoomSyncTimer = setTimeout(() => {
+      arenaRoomSyncTimer = null;
+      const roomId = Number(elements.arenaRoomId.value.trim() || state.arena.lastRoomId || 0);
+      if (Number.isInteger(roomId) && roomId > 0) {
+        void syncArenaRoomResult(roomId);
+      }
+    }, 350);
+  }
+
+  async function syncArenaRoomResult(roomId) {
+    if (!adapter.getArenaRoomResult || !Number.isInteger(Number(roomId)) || Number(roomId) <= 0) return;
+    try {
+      const result = await adapter.getArenaRoomResult(Number(roomId));
+      if (!result) return;
+      state.arena.lastRoomId = Number(roomId);
+      if (result.fight) {
+        state.arena.lastFight = decorateArenaFight(result.fight);
+      }
+      if (result.story) {
+        state.arena.pendingStoryRoomId = null;
+      } else if (result.pendingNarration) {
+        state.arena.pendingStoryRoomId = Number(roomId);
+      }
+      renderAll();
+    } catch (error) {
+      addEvent("danger", `Arena lookup failed: ${normalizeError(error)}`);
+      renderAll();
+    }
+  }
+
+  function decorateArenaFight(fight) {
+    if (!fight) return null;
+    const selectedHero = getSelectedHero();
+    const winnerHero = state.heroes.find((hero) => hero.id === fight.winnerHeroId);
+    const loserHero = state.heroes.find((hero) => hero.id === fight.loserHeroId);
+    const account = state.connection.wallet.toLowerCase();
+    const accountWon =
+      typeof fight.accountWon === "boolean"
+        ? fight.accountWon
+        : Boolean(fight.winner && account && fight.winner.toLowerCase() === account);
+    const accountIsParticipant = Boolean(
+      account &&
+        ((fight.creator && fight.creator.toLowerCase() === account) ||
+          (fight.challenger && fight.challenger.toLowerCase() === account)),
+    );
+    const selectedHeroLost = selectedHero?.id === fight.loserHeroId;
+    const selectedHeroWon = selectedHero?.id === fight.winnerHeroId;
+
+    return {
+      ...fight,
+      winnerHeroName: fight.winnerHeroName || winnerHero?.name || `Hero ${fight.winnerHeroId}`,
+      loserHeroName: fight.loserHeroName || loserHero?.name || `Hero ${fight.loserHeroId}`,
+      accountWon,
+      accountLost: selectedHeroLost || (accountIsParticipant && !accountWon),
+      selectedHeroWon,
+      selectedHeroLost,
+    };
+  }
+
+  function arenaFightMessage(fight, hasStory = false) {
+    const decorated = decorateArenaFight(fight);
+    if (!decorated) return "";
+    const winner = decorated.winnerHeroName || `Hero ${decorated.winnerHeroId}`;
+    const loser = decorated.loserHeroName || `Hero ${decorated.loserHeroId}`;
+    const selectedHero = getSelectedHero();
+    const perspective =
+      decorated.selectedHeroWon || decorated.accountWon
+        ? "You won."
+        : decorated.selectedHeroLost || decorated.accountLost
+          ? "You lost."
+          : "";
+    const storySuffix = hasStory ? " Chronicle ready." : "";
+    const selectedPower =
+      selectedHero?.id === decorated.creatorHeroId
+        ? decorated.creatorPower
+        : selectedHero?.id === decorated.challengerHeroId
+          ? decorated.challengerPower
+          : null;
+    const powerText = selectedPower
+      ? ` Your power: ${selectedPower}. Fight power: ${decorated.creatorPower} vs ${decorated.challengerPower}.`
+      : ` Strength ${decorated.creatorPower} vs ${decorated.challengerPower}.`;
+
+    return `${perspective ? `${perspective} ` : ""}${winner} defeated ${loser} in challenge ${decorated.roomId}.${powerText}${storySuffix}`;
+  }
+
   function renderArena() {
     const hero = getSelectedHero();
     const roomId = Number(elements.arenaRoomId.value.trim() || state.arena.lastRoomId || 0);
     const story = roomId ? getUnreadArenaStory(roomId) : null;
-    const lastFight = state.arena.lastFight;
+    const lastFight = state.arena.lastFight?.roomId === roomId ? state.arena.lastFight : null;
     const creator = roomId ? state.arena.createdChallengeOwners.get(roomId) : "";
     const createdByCurrentWallet =
       state.connection.mode === "somnia" &&
@@ -2210,18 +2346,32 @@ const elements = {
     elements.arenaCreate.disabled = state.connection.busy || !hero;
     elements.arenaJoin.disabled = state.connection.busy || !hero || !roomId || createdByCurrentWallet;
     elements.arenaRoomStatus.textContent = roomId ? `Challenge ${roomId}` : "No challenge";
+    elements.arenaChoice.hidden = state.arena.mode !== "menu";
+    elements.arenaCreatePanel.hidden = state.arena.mode !== "create";
+    elements.arenaJoinPanel.hidden = state.arena.mode !== "join";
+    elements.arenaModeCreate.disabled = state.connection.busy || !hero;
+    elements.arenaModeJoin.disabled = state.connection.busy || !hero;
 
+    if (lastFight) {
+      elements.arenaMessage.textContent = arenaFightMessage(lastFight, Boolean(story));
+      return;
+    }
     if (story) {
       elements.arenaMessage.textContent = `Arena Master has a new chronicle for challenge ${roomId}.`;
       return;
     }
-    if (lastFight) {
-      const winner = lastFight.winnerHeroName || `Hero ${lastFight.winnerHeroId}`;
-      elements.arenaMessage.textContent = `${winner} won challenge ${lastFight.roomId}. Strength ${lastFight.creatorPower} vs ${lastFight.challengerPower}.`;
+    if (state.arena.pendingStoryRoomId === roomId) {
+      elements.arenaMessage.textContent = `Challenge ${roomId} resolved. The Arena Master is still writing the chronicle.`;
       return;
     }
     if (!hero) {
       elements.arenaMessage.textContent = "Recruit and select a hero before posting or accepting a challenge.";
+      return;
+    }
+    if (state.arena.mode === "menu") {
+      const weapon = adapter.getEquippedWeapon ? adapter.getEquippedWeapon(hero.id) : null;
+      const weaponText = weapon ? `${weapon.name} gives +${weapon.arenaBonus} arena power.` : "No weapon equipped.";
+      elements.arenaMessage.textContent = `${hero.name} can challenge another player or respond to an existing challenge. ${weaponText}`;
       return;
     }
     if (createdByCurrentWallet) {
@@ -2230,9 +2380,13 @@ const elements = {
     }
     const weapon = adapter.getEquippedWeapon ? adapter.getEquippedWeapon(hero.id) : null;
     const weaponText = weapon ? `${weapon.name} gives +${weapon.arenaBonus} arena power.` : "No weapon equipped.";
+    if (state.arena.mode === "create") {
+      elements.arenaMessage.textContent = `${hero.name} will post a wager challenge. ${weaponText}`;
+      return;
+    }
     elements.arenaMessage.textContent = roomId
       ? `${hero.name} will accept challenge ${roomId}. ${weaponText}`
-      : `${hero.name} can post a wager challenge. ${weaponText}`;
+      : "Paste a challenge id, then accept with the selected hero.";
   }
 
   function renderPendingRequests() {
@@ -2273,6 +2427,7 @@ const elements = {
         onHeroRequested: handleContractHeroRequest,
         onHeroGenerated: handleContractHero,
         onAgentFailed: handleContractAgentFailure,
+        onArenaFight: handleContractArenaFight,
         onArenaStory: handleContractArenaStory,
         onEvent: (type, message) => {
           addEvent(type, message);
@@ -2393,9 +2548,17 @@ const elements = {
     renderAll();
   }
 
+  function handleContractArenaFight(fight) {
+    state.arena.lastRoomId = Number(fight.roomId);
+    state.arena.lastFight = decorateArenaFight(fight);
+    void syncArenaRoomResult(fight.roomId);
+    renderAll();
+  }
+
   function handleContractArenaStory(roomId, story) {
     state.arena.lastRoomId = Number(roomId);
     state.arena.pendingStoryRoomId = null;
+    void syncArenaRoomResult(roomId);
     addEvent("reward", `Arena chronicle ready for challenge ${roomId}.`);
     renderAll();
   }

@@ -5,10 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>The Gate of Sogents</title>
     <link rel="icon" type="image/png" href="./public/assets/ui/generated/favicon.png?v=20260609-2" />
-    <link rel="stylesheet" href="./styles.css?v=20260610-roster1" />
+    <link rel="stylesheet" href="./styles.css?v=20260610-arena7" />
     <script src="https://cdn.jsdelivr.net/npm/pixi.js@8.18.1/dist/pixi.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/ethers@6.16.0/dist/ethers.umd.min.js"></script>
-    <script type="module" src="./src/app.js?v=20260610-roster1"></script>
+    <script type="module" src="./src/app.js?v=20260610-arena7"></script>
   </head>
   <body>
     <main id="app-shell" class="app-shell">
@@ -145,18 +145,22 @@
                   <h3>Forge</h3>
                   <span><span id="weapon-count">0</span> weapons</span>
                 </div>
-                <div class="inventory-grid">
-                  <div>
-                    <span class="inventory-label">Shards</span>
-                    <strong id="shard-count">0</strong>
-                  </div>
-                  <div>
-                    <span class="inventory-label">Weapon</span>
-                    <strong id="weapon-name">None</strong>
+                <div class="forge-summary">
+                  <div class="inventory-grid">
+                    <div>
+                      <span class="inventory-label">Shards</span>
+                      <strong id="shard-count">0</strong>
+                    </div>
+                    <div>
+                      <span class="inventory-label">Weapon</span>
+                      <strong id="weapon-name">None</strong>
+                    </div>
                   </div>
                 </div>
-                <div id="forge-status" class="forge-status">Forge: Idle</div>
-                <button id="forge-action" type="button" class="forge-action">Start Order</button>
+                <div class="forge-order">
+                  <div id="forge-status" class="forge-status">Forge: Idle</div>
+                  <button id="forge-action" type="button" class="forge-action">Start Order</button>
+                </div>
                 <div id="weapon-list" class="weapon-list"></div>
                 <div class="weapon-actions">
                   <button id="weapon-equip" type="button">Equip</button>
@@ -176,7 +180,11 @@
                   <h3>Arena</h3>
                   <span id="arena-room-status">No challenge</span>
                 </div>
-                <div class="arena-form">
+                <div id="arena-choice" class="arena-choice">
+                  <button id="arena-mode-create" type="button">Challenge Someone</button>
+                  <button id="arena-mode-join" type="button" class="quiet-button">Respond to Challenge</button>
+                </div>
+                <div id="arena-create-panel" class="arena-mode-panel">
                   <input
                     id="arena-stake"
                     type="text"
@@ -186,6 +194,10 @@
                     spellcheck="false"
                     value="0.01"
                   />
+                  <button id="arena-create" type="button">Create Challenge</button>
+                  <button type="button" class="quiet-button arena-back">Back</button>
+                </div>
+                <div id="arena-join-panel" class="arena-mode-panel">
                   <input
                     id="arena-room-id"
                     type="text"
@@ -194,8 +206,8 @@
                     autocomplete="off"
                     spellcheck="false"
                   />
-                  <button id="arena-create" type="button">Challenge</button>
-                  <button id="arena-join" type="button" class="quiet-button">Accept</button>
+                  <button id="arena-join" type="button" class="quiet-button">Accept Challenge</button>
+                  <button type="button" class="quiet-button arena-back">Back</button>
                 </div>
                 <p id="arena-message" class="arena-message">Walk down the lower road and talk to the Arena Master.</p>
               </div>

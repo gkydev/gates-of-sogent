@@ -555,22 +555,56 @@ h3 {
 }
 
 .game-screen-card {
+  position: relative;
   width: min(900px, 100%);
   max-height: min(540px, calc(100% - 24px));
   overflow: auto;
-  border: 0;
-  border-radius: 0;
+  border: 2px solid rgba(214, 151, 71, 0.92);
+  border-radius: 4px;
   background:
-    url("./public/assets/ui/generated/dialogue-panel-wide.png") center / 100% 100% no-repeat,
-    rgba(8, 12, 13, 0.97);
+    linear-gradient(135deg, rgba(66, 214, 197, 0.08), transparent 24%, transparent 76%, rgba(240, 169, 75, 0.1)),
+    linear-gradient(180deg, rgba(18, 22, 23, 0.98), rgba(7, 10, 11, 0.98));
   image-rendering: pixelated;
   padding: 30px 38px 34px;
-  box-shadow: 0 22px 52px rgba(0, 0, 0, 0.62);
+  box-shadow:
+    inset 0 0 0 2px rgba(4, 7, 7, 0.95),
+    inset 0 0 0 5px rgba(66, 214, 197, 0.16),
+    0 22px 52px rgba(0, 0, 0, 0.62);
+}
+
+.game-screen-card::before {
+  position: absolute;
+  inset: 10px;
+  border: 1px solid rgba(240, 169, 75, 0.34);
+  border-radius: 2px;
+  content: "";
+  pointer-events: none;
+}
+
+.game-screen-card::after {
+  position: absolute;
+  top: 8px;
+  left: 50%;
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(240, 169, 75, 0.86);
+  background: #071013;
+  box-shadow:
+    inset 0 0 0 3px rgba(66, 214, 197, 0.72),
+    0 0 0 2px rgba(4, 7, 7, 0.9);
+  content: "";
+  pointer-events: none;
+  transform: translateX(-50%) rotate(45deg);
 }
 
 .game-screen-card:has(#screen-guildmaster.is-active) {
   width: min(760px, 100%);
   padding: 28px 36px 32px;
+}
+
+.game-screen-card:has(#screen-blacksmith.is-active) {
+  width: min(700px, 100%);
+  padding: 30px 40px 42px;
 }
 
 .game-screen-heading {
@@ -725,6 +759,25 @@ h3 {
     linear-gradient(180deg, #293232 0%, #171d1d 58%, #101414 100%);
   box-shadow: none;
   text-shadow: 0 1px 0 #050707;
+}
+
+.game-screen-heading .quiet-button {
+  min-height: 36px;
+  border: 1px solid rgba(240, 169, 75, 0.72);
+  border-radius: 3px;
+  color: #fff4cf;
+  background:
+    linear-gradient(180deg, rgba(22, 27, 27, 0.98), rgba(8, 12, 13, 0.98));
+  box-shadow:
+    inset 0 0 0 1px rgba(4, 7, 7, 0.92),
+    inset 0 0 0 3px rgba(66, 214, 197, 0.12);
+  padding: 0 18px;
+  text-shadow: none;
+}
+
+.game-screen-heading .quiet-button:hover:not(:disabled) {
+  border-color: rgba(240, 169, 75, 0.95);
+  filter: brightness(1.08);
 }
 
 .mobile-controls {
@@ -889,6 +942,21 @@ h3 {
   margin: 0;
 }
 
+#screen-blacksmith.is-active {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+}
+
+#screen-blacksmith .panel-heading {
+  margin-bottom: 0;
+}
+
+.forge-summary,
+.forge-order {
+  min-width: 0;
+}
+
 .stat-grid,
 .inventory-grid {
   display: grid;
@@ -933,36 +1001,98 @@ h3 {
   color: var(--amber);
 }
 
-.forge-status {
-  margin-top: 8px;
-  border: 1px solid var(--line-soft);
+#screen-blacksmith .inventory-grid {
+  grid-template-columns: minmax(120px, 0.42fr) minmax(0, 1fr);
+  gap: 10px;
+}
+
+#screen-blacksmith .inventory-grid div {
+  border-color: rgba(66, 214, 197, 0.18);
+  background:
+    linear-gradient(180deg, rgba(18, 25, 25, 0.94), rgba(9, 14, 15, 0.96));
+  padding: 12px 14px;
+}
+
+#screen-blacksmith .inventory-grid strong {
+  margin-top: 7px;
+  font-size: 0.96rem;
+}
+
+.forge-order {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 220px;
+  align-items: stretch;
+  gap: 10px;
+  border: 1px solid rgba(240, 169, 75, 0.28);
   border-radius: 5px;
-  background: #0f1415;
-  padding: 8px 9px;
+  background:
+    linear-gradient(90deg, rgba(240, 169, 75, 0.08), transparent 34%),
+    rgba(8, 13, 14, 0.72);
+  padding: 9px;
+}
+
+.forge-status {
+  margin-top: 0;
+  border: 1px solid rgba(63, 74, 72, 0.58);
+  border-radius: 5px;
+  background: rgba(5, 9, 10, 0.78);
+  min-height: 44px;
+  padding: 10px 12px;
   color: var(--muted);
   font-size: 0.8rem;
   line-height: 1.35;
 }
 
+#screen-blacksmith .forge-status {
+  display: flex;
+  align-items: center;
+}
+
 .forge-status.is-working {
   border-color: rgba(66, 214, 197, 0.52);
+  background: rgba(66, 214, 197, 0.08);
   color: var(--teal);
 }
 
 .forge-status.is-ready {
   border-color: rgba(240, 169, 75, 0.68);
+  background: rgba(240, 169, 75, 0.08);
   color: var(--amber);
 }
 
 .forge-action {
   width: 100%;
-  margin-top: 8px;
+  min-height: 44px;
+  border: 1px solid rgba(240, 169, 75, 0.78);
+  border-radius: 3px;
+  color: #1b1208;
+  background:
+    linear-gradient(180deg, #ffd681 0%, #e4a144 54%, #8e4d1f 100%);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 238, 162, 0.42),
+    inset 0 -3px 0 rgba(73, 35, 13, 0.35);
+  font-size: 0.9rem;
+  margin-top: 0;
+  padding: 0 14px;
+  text-shadow: 0 1px 0 rgba(255, 232, 155, 0.5);
+  white-space: nowrap;
+}
+
+.forge-action:hover:not(:disabled) {
+  filter: brightness(1.07);
 }
 
 .weapon-list {
   display: grid;
   gap: 6px;
-  margin-top: 8px;
+  min-height: 66px;
+  max-height: 140px;
+  margin-top: 0;
+  overflow: auto;
+}
+
+#screen-blacksmith .weapon-list:has(.weapon-empty) {
+  display: none;
 }
 
 .weapon-item {
@@ -976,7 +1106,9 @@ h3 {
   background: #0b0f10;
   padding: 7px 8px;
   color: #dfe7dd;
+  font-weight: 700;
   text-align: left;
+  text-shadow: none;
 }
 
 .weapon-item strong,
@@ -997,6 +1129,7 @@ h3 {
 
 .weapon-item.is-selected {
   border-color: rgba(240, 169, 75, 0.82);
+  background: rgba(240, 169, 75, 0.08);
 }
 
 .weapon-item.is-equipped strong::after {
@@ -1007,34 +1140,77 @@ h3 {
 }
 
 .weapon-empty {
-  border: 1px dashed var(--line-soft);
+  border: 1px dashed rgba(66, 214, 197, 0.18);
   border-radius: 5px;
-  padding: 11px 8px;
+  min-height: 66px;
+  display: grid;
+  place-items: center;
+  padding: 10px 8px;
+  background: rgba(5, 9, 10, 0.48);
   color: var(--muted);
   font-size: 0.78rem;
   text-align: center;
 }
 
+#screen-blacksmith .weapon-list:has(.weapon-empty) + .weapon-actions {
+  display: none;
+}
+
 .weapon-actions {
   display: grid;
-  grid-template-columns: 76px 76px minmax(0, 1fr);
-  gap: 7px;
-  margin-top: 8px;
+  grid-template-columns: 82px 82px minmax(0, 1fr);
+  gap: 8px;
+  margin-top: 0;
 }
 
 .weapon-actions button,
 .weapon-actions input {
   min-width: 0;
+  min-height: 38px;
 }
 
-.arena-form {
+.weapon-actions button {
+  padding: 0 12px;
+}
+
+.weapon-actions button:disabled {
+  color: var(--muted);
+  background:
+    url("./public/assets/ui/generated/input-dark.png") center / 100% 100% no-repeat,
+    linear-gradient(180deg, #232b2b 0%, #141919 58%, #0c1010 100%);
+  text-shadow: 0 1px 0 #050707;
+}
+
+.weapon-actions input:disabled {
+  opacity: 0.45;
+}
+
+.arena-choice,
+.arena-mode-panel {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 8px;
 }
 
-.arena-form button {
+.arena-choice {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.arena-mode-panel {
+  grid-template-columns: minmax(0, 1fr) 190px 92px;
+}
+
+.arena-choice button,
+.arena-mode-panel button {
   width: 100%;
+}
+
+.arena-choice button {
+  min-height: 48px;
+}
+
+.arena-mode-panel[hidden],
+.arena-choice[hidden] {
+  display: none;
 }
 
 .arena-message {
@@ -1359,16 +1535,47 @@ h3 {
     padding: 24px 26px 28px;
   }
 
+  .game-screen-card:has(#screen-blacksmith.is-active) {
+    padding: 24px 26px 36px;
+  }
+
   .game-screen-heading {
     align-items: flex-start;
   }
 
   .chronicle-grid,
   .inventory-grid,
-  .arena-form,
+  .arena-choice,
+  .arena-mode-panel,
   .recruit-form,
   .weapon-actions {
     grid-template-columns: 1fr;
+  }
+
+  #screen-blacksmith.is-active,
+  #screen-blacksmith .weapon-actions {
+    grid-template-columns: 1fr;
+  }
+
+  #screen-blacksmith .inventory-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  #screen-blacksmith .weapon-actions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  #screen-blacksmith .weapon-actions input {
+    grid-column: 1 / -1;
+  }
+
+  #screen-blacksmith .forge-status,
+  #screen-blacksmith .forge-action {
+    grid-column: 1;
+  }
+
+  #screen-blacksmith .weapon-list {
+    max-height: 132px;
   }
 
   .dialogue {

@@ -12,8 +12,8 @@ import {
   PLAYER_DIRECTIONS,
   NPC_SHEET_IDS,
   STANDALONE_NPC_ASSETS,
-} from "./config.js?v=20260610-roster1";
-import { normalizeError } from "./utils.js?v=20260610-roster1";
+} from "./config.js?v=20260610-arena7";
+import { normalizeError } from "./utils.js?v=20260610-arena7";
 
 export async function loadTextures({ addEvent } = {}) {
     const result = {

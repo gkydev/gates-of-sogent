@@ -6,7 +6,7 @@ import {
   SOMNIA_CHAIN_ID_HEX,
   SOMNIA_RPC_URL,
   WEAPON_SHARD_COST,
-} from "./config.js?v=20260610-roster1";
+} from "./config.js?v=20260610-arena7";
 import {
   fromContractPrice,
   getClass,
@@ -17,7 +17,7 @@ import {
   shortAddress,
   toContractInt,
   traitFromSeed,
-} from "./utils.js?v=20260610-roster1";
+} from "./utils.js?v=20260610-arena7";
 
 export function SimulationGameAdapter() {
     this.nextHeroId = 1;
@@ -298,6 +298,39 @@ export function SimulationGameAdapter() {
     return this.arenaStories.get(Number(roomId)) || null;
   };
 
+  SimulationGameAdapter.prototype.getArenaRoomResult = function getArenaRoomResult(roomId) {
+    const room = this.arenaRooms.get(Number(roomId));
+    if (!room) return null;
+    const story = this.getArenaStory(roomId);
+    if (!room.resolved) {
+      return {
+        roomId: Number(roomId),
+        resolved: false,
+        story,
+      };
+    }
+
+    const winnerHero = room.winnerHeroId === room.creatorHeroId ? room.creatorHero : room.challengerHero;
+    const loserHero = room.winnerHeroId === room.creatorHeroId ? room.challengerHero : room.creatorHero;
+    return {
+      roomId: Number(roomId),
+      resolved: true,
+      story,
+      fight: {
+        roomId: Number(roomId),
+        winnerHeroId: room.winnerHeroId,
+        loserHeroId: loserHero?.id || 0,
+        winnerHeroName: winnerHero?.name || `Hero ${room.winnerHeroId}`,
+        loserHeroName: loserHero?.name || "Opponent",
+        creatorHeroId: room.creatorHeroId,
+        challengerHeroId: room.challengerHeroId,
+        creatorPower: room.creatorPower,
+        challengerPower: room.challengerPower,
+        payout: room.stake * 2,
+      },
+    };
+  };
+
   SimulationGameAdapter.prototype.getForgeDuration = function getForgeDuration(tier) {
     return Math.min(45 + tier * 15, 180) * 1000;
   };
@@ -441,11 +474,20 @@ export function SimulationGameAdapter() {
     return 30 + hero.rarity * 28 + hero.bravery * 2 + hero.wisdom + Math.floor(hero.greed / 2) + weaponArenaBonus;
   }
 
-export function SomniaContractAdapter({ contractAddress, onHeroRequested, onHeroGenerated, onAgentFailed, onArenaStory, onEvent }) {
+export function SomniaContractAdapter({
+    contractAddress,
+    onHeroRequested,
+    onHeroGenerated,
+    onAgentFailed,
+    onArenaFight,
+    onArenaStory,
+    onEvent,
+  }) {
     this.contractAddress = contractAddress;
     this.onHeroRequested = onHeroRequested;
     this.onHeroGenerated = onHeroGenerated;
     this.onAgentFailed = onAgentFailed;
+    this.onArenaFight = onArenaFight;
     this.onArenaStory = onArenaStory;
     this.onEvent = onEvent;
     this.provider = null;
@@ -738,10 +780,20 @@ export function SomniaContractAdapter({ contractAddress, onHeroRequested, onHero
     this.contract.on(
       "ArenaFightResolved",
       (roomId, winner, winnerHeroId, loserHeroId, payout, creatorPower, challengerPower) => {
+        const fight = {
+          roomId: Number(roomId),
+          winner,
+          winnerHeroId: Number(winnerHeroId),
+          loserHeroId: Number(loserHeroId),
+          payout,
+          creatorPower: Number(creatorPower),
+          challengerPower: Number(challengerPower),
+        };
         const accountWon = winner.toLowerCase() === this.account.toLowerCase();
+        this.onArenaFight?.(fight);
         this.onEvent(
           accountWon ? "reward" : "system",
-          `Arena challenge ${roomId.toString()} resolved. Winner hero ${winnerHeroId.toString()} defeated ${loserHeroId.toString()}.`,
+          `Arena challenge ${fight.roomId} resolved. Winner hero ${fight.winnerHeroId} defeated ${fight.loserHeroId}.`,
         );
       },
     );
@@ -847,6 +899,90 @@ export function SomniaContractAdapter({ contractAddress, onHeroRequested, onHero
 
   SomniaContractAdapter.prototype.getArenaStory = function getArenaStory(roomId) {
     return this.arenaStories.get(Number(roomId)) || null;
+  };
+
+  SomniaContractAdapter.prototype.getArenaRoomResult = async function getArenaRoomResult(roomId) {
+    if (!this.contract || !roomId) return null;
+    const parsedRoomId = Number(roomId);
+    const zeroAddress = "0x0000000000000000000000000000000000000000";
+    const room = await this.contract.arenaRooms(parsedRoomId);
+    const creator = room.creator ?? room[0];
+    if (!creator || creator === zeroAddress) return null;
+
+    const resolved = Boolean(room.resolved ?? room[9]);
+    let story = this.getArenaStory(parsedRoomId);
+    try {
+      const chainStory = await this.contract.lastArenaStory(parsedRoomId);
+      if (chainStory) {
+        story = {
+          requestId: `room-${parsedRoomId}`,
+          story: chainStory.toString(),
+        };
+        this.arenaStories.set(parsedRoomId, story);
+      }
+    } catch {
+      // Older deployments may not expose lastArenaStory.
+    }
+
+    if (!resolved) {
+      let pendingNarration = false;
+      try {
+        pendingNarration = Boolean(await this.contract.pendingArenaNarration(parsedRoomId));
+      } catch {
+        pendingNarration = false;
+      }
+      return {
+        roomId: parsedRoomId,
+        resolved: false,
+        pendingNarration,
+        story,
+      };
+    }
+
+    const challenger = room.challenger ?? room[1];
+    const creatorHeroId = Number(room.creatorHeroId ?? room[2]);
+    const challengerHeroId = Number(room.challengerHeroId ?? room[3]);
+    const winner = room.winner ?? room[7];
+    const winnerHeroId = Number(room.winnerHeroId ?? room[8]);
+    const loserHeroId = winnerHeroId === creatorHeroId ? challengerHeroId : creatorHeroId;
+    const stake = room.stake ?? room[4];
+    const [winnerHeroName, loserHeroName] = await Promise.all([
+      this.loadHeroName(winnerHeroId),
+      this.loadHeroName(loserHeroId),
+    ]);
+
+    return {
+      roomId: parsedRoomId,
+      resolved: true,
+      story,
+      fight: {
+        roomId: parsedRoomId,
+        creator,
+        challenger,
+        winner,
+        winnerHeroId,
+        loserHeroId,
+        winnerHeroName,
+        loserHeroName,
+        creatorHeroId,
+        challengerHeroId,
+        creatorPower: Number(room.creatorPower ?? room[5]),
+        challengerPower: Number(room.challengerPower ?? room[6]),
+        payout: typeof stake === "bigint" ? stake * 2n : Number(stake) * 2,
+        accountWon: winner.toLowerCase() === this.account.toLowerCase(),
+      },
+    };
+  };
+
+  SomniaContractAdapter.prototype.loadHeroName = async function loadHeroName(heroId) {
+    if (!this.contract || !heroId) return `Hero ${heroId}`;
+    try {
+      const hero = await this.contract.heroes(heroId);
+      const name = hero.name ?? hero[1];
+      return (name || `Hero ${heroId}`).toString();
+    } catch {
+      return `Hero ${heroId}`;
+    }
   };
 
   SomniaContractAdapter.prototype.loadRecentAdventureStories = async function loadRecentAdventureStories(heroIds) {
@@ -1081,7 +1217,24 @@ export function SomniaContractAdapter({ contractAddress, onHeroRequested, onHero
     const room = await this.contract.arenaRooms(roomId);
     const stake = room.stake ?? room[4];
     const fee = await this.contract.requiredArenaNarrationFee();
-    const tx = await this.contract.joinArenaRoomWithNarration(roomId, hero.id, { value: stake + fee });
+    const requiredValue = stake + fee;
+    const insufficientFundsMessage = formatArenaJoinFundsMessage(stake, fee);
+    if (this.provider && this.account) {
+      const balance = await this.provider.getBalance(this.account);
+      if (balance < requiredValue) {
+        throw new Error(insufficientFundsMessage);
+      }
+    }
+
+    let tx;
+    try {
+      tx = await this.contract.joinArenaRoomWithNarration(roomId, hero.id, { value: requiredValue });
+    } catch (error) {
+      if (isInsufficientFundsError(error)) {
+        throw new Error(insufficientFundsMessage);
+      }
+      throw error;
+    }
     this.onEvent("system", `Submitted joinArenaRoomWithNarration(${roomId}, ${hero.id}) to Somnia: ${shortAddress(tx.hash)}.`);
     const receipt = await tx.wait();
     const fight = this.extractArenaFightResolved(receipt);
@@ -1395,6 +1548,29 @@ export function SomniaContractAdapter({ contractAddress, onHeroRequested, onHero
       wisdom: Number(values.wisdom),
     };
   };
+
+  function formatArenaJoinFundsMessage(stake, fee) {
+    const total = stake + fee;
+    return `Insufficient STT to accept this challenge. You need ${window.ethers.formatEther(stake)} STT stake + ${window.ethers.formatEther(fee)} STT AI narration fee (${window.ethers.formatEther(total)} STT total), plus gas.`;
+  }
+
+  function isInsufficientFundsError(error) {
+    const parts = [
+      error?.code,
+      error?.shortMessage,
+      error?.reason,
+      error?.message,
+      error?.info?.error?.message,
+      error?.error?.message,
+    ];
+    const message = parts.filter(Boolean).join(" ").toLowerCase();
+    return (
+      message.includes("insufficient funds") ||
+      message.includes("insufficient balance") ||
+      message.includes("not enough funds") ||
+      message.includes("exceeds balance")
+    );
+  }
 
   async function ensureSomniaNetwork() {
     await window.ethereum.request({ method: "eth_requestAccounts" });
