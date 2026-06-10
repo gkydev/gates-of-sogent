@@ -321,7 +321,7 @@ export const NPCS = [
       id: "warden",
       name: "Gate Warden",
       tag: "Warden",
-      skin: "oracle",
+      skin: "warden",
       x: 502,
       y: 318,
       color: 0x86b86f,
