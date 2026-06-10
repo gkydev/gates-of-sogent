@@ -6,9 +6,8 @@ import {
   SOMNIA_CHAIN_ID_HEX,
   SOMNIA_RPC_URL,
   WEAPON_SHARD_COST,
-} from "./config.js?v=20260609-demo-fight2";
+} from "./config.js?v=20260610-roster1";
 import {
-  formatUsd,
   fromContractPrice,
   getClass,
   hash64,
@@ -18,7 +17,7 @@ import {
   shortAddress,
   toContractInt,
   traitFromSeed,
-} from "./utils.js?v=20260609-demo-fight2";
+} from "./utils.js?v=20260610-roster1";
 
 export function SimulationGameAdapter() {
     this.nextHeroId = 1;
@@ -109,12 +108,6 @@ export function SimulationGameAdapter() {
     return {
       hero,
       events: [
-        {
-          type: "system",
-          message: `Market Oracle returned BTC ${formatUsd(market.bitcoinUsd)}, ETH ${formatUsd(
-            market.ethereumUsd,
-          )}, SOMI ${formatUsd(market.somniaUsd)}.`,
-        },
         {
           type: "reward",
           message: `${name} generated as ${rarity.name} ${heroClass.name}.`,
@@ -887,7 +880,7 @@ export function SomniaContractAdapter({ contractAddress, onHeroRequested, onHero
       events: [
         {
           type: "system",
-          message: "Recruitment rite confirmed. Waiting for market omens.",
+          message: "Recruitment rite confirmed.",
         },
       ],
     };
@@ -914,89 +907,30 @@ export function SomniaContractAdapter({ contractAddress, onHeroRequested, onHero
   };
 
   SomniaContractAdapter.prototype.enterGate = async function enterGate(heroId, heroName) {
-    if (this.llmGateSupport && this.oneTxAdventureSupport) {
-      const fee = await this.contract.requiredGateDecisionFee();
-      const tx = await this.contract.startAdventure(heroId, { value: fee });
-      this.onEvent("system", `Submitted startAdventure(${heroId}) to Somnia: ${shortAddress(tx.hash)}.`);
-      await tx.wait();
-      this.pendingGateDecisions.add(heroId);
-      await this.refreshGateRun(heroId);
-
-      return {
-        pendingDecision: true,
-        events: [
-          {
-            type: "system",
-            message: `${heroName} entered the gate. The Warden is reading the path and writing the chronicle.`,
-          },
-        ],
-      };
+    if (!this.llmGateSupport || !this.oneTxAdventureSupport) {
+      throw new Error("Connected contract does not support one-click LLM adventures. Deploy the latest contract.");
     }
 
-    const tx = await this.contract.startGateRun(heroId);
-    this.onEvent("system", `Submitted startGateRun(${heroId}) to Somnia: ${shortAddress(tx.hash)}.`);
+    const fee = await this.contract.requiredGateDecisionFee();
+    const tx = await this.contract.startAdventure(heroId, { value: fee });
+    this.onEvent("system", `Submitted startAdventure(${heroId}) to Somnia: ${shortAddress(tx.hash)}.`);
     await tx.wait();
+    this.pendingGateDecisions.add(heroId);
     await this.refreshGateRun(heroId);
 
     return {
-      pendingDecision: false,
+      pendingDecision: true,
       events: [
         {
           type: "system",
-          message: `${heroName} entered Floor 1 on-chain.`,
+          message: `${heroName} entered the gate. The Warden is reading the path and writing the chronicle.`,
         },
       ],
     };
   };
 
   SomniaContractAdapter.prototype.resolveGateStep = async function resolveGateStep(hero) {
-    if (this.llmGateSupport) {
-      const fee = await this.contract.requiredGateDecisionFee();
-      const tx = await this.contract.requestGateDecision(hero.id, { value: fee });
-      this.onEvent("system", `Submitted gate omen for hero ${hero.id} to Somnia: ${shortAddress(tx.hash)}.`);
-      await tx.wait();
-      this.pendingGateDecisions.add(hero.id);
-      const run = this.runs.get(hero.id);
-      if (run) {
-        this.runs.set(hero.id, { ...run, pendingDecision: true });
-      }
-
-      return {
-        events: [
-          {
-            type: "system",
-            message: "Gate omen confirmed. Waiting for the chronicle to return.",
-          },
-        ],
-      };
-    }
-
-    const tx = await this.contract.resolveGateFloor(hero.id);
-    this.onEvent("system", `Submitted resolveGateFloor(${hero.id}) to Somnia: ${shortAddress(tx.hash)}.`);
-    const receipt = await tx.wait();
-    const event = this.extractGateResolution(receipt, hero.id);
-    const run = await this.refreshGateRun(hero.id);
-    await this.refreshInventory();
-
-    if (!event) {
-      return {
-        events: [
-          {
-            type: "system",
-            message: `Gate floor resolved on-chain. HP ${run.hp}. Loot ${run.loot} shards.`,
-          },
-        ],
-      };
-    }
-
-    return {
-      events: [
-        {
-          type: event.active ? "reward" : event.outcome === "DEFEATED" ? "danger" : "system",
-          message: `On-chain Floor ${event.floor}: ${event.outcome}. HP ${event.hp}. Loot ${event.loot} shards.`,
-        },
-      ],
-    };
+    return this.enterGate(hero.id, hero.name);
   };
 
   SomniaContractAdapter.prototype.getRun = function getRun(heroId) {

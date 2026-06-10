@@ -5,8 +5,6 @@ import {
   PLAYER_SPEED,
   SOMNIA_CHAIN_ID_HEX,
   DEFAULT_GAME_CONTRACT_ADDRESS,
-  STORAGE_CONTRACT_ADDRESS,
-  CONTRACT_QUERY_PARAM,
   WEAPON_SHARD_COST,
   CLASS_DEFS,
   CAMPFIRE_SCENE,
@@ -17,16 +15,31 @@ import {
   SCENE_CONFIG,
   DEFAULT_NAMES,
   PLAYER_DIRECTION_Y_OFFSETS,
-} from "./config.js?v=20260609-demo-fight2";
-import { loadTextures } from "./assets.js?v=20260609-demo-fight2";
-import { SimulationGameAdapter, SomniaContractAdapter } from "./adapters.js?v=20260609-demo-fight2";
-import { clamp, formatTime, formatUsd, getClass, getHeroPortrait, normalizeError, shortAddress } from "./utils.js?v=20260609-demo-fight2";
+} from "./config.js?v=20260610-roster1";
+import { loadTextures } from "./assets.js?v=20260610-roster1";
+import { SimulationGameAdapter, SomniaContractAdapter } from "./adapters.js?v=20260610-roster1";
+import { clamp, formatTime, getClass, getHeroPortrait, normalizeError, shortAddress } from "./utils.js?v=20260610-roster1";
 
 const elements = {
+    appShell: document.querySelector("#app-shell"),
+    loginScreen: document.querySelector("#login-screen"),
+    loginConnect: document.querySelector("#login-connect"),
+    loginMessage: document.querySelector("#login-message"),
     stage: document.querySelector("#pixi-stage"),
     locationName: document.querySelector("#location-name"),
     nearbyLabel: document.querySelector("#nearby-label"),
     talkButton: document.querySelector("#talk-button"),
+    hudHero: document.querySelector("#hud-hero"),
+    hudShards: document.querySelector("#hud-shards"),
+    hudWeapon: document.querySelector("#hud-weapon"),
+    hudWallet: document.querySelector("#hud-wallet"),
+    hudPending: document.querySelector("#hud-pending"),
+    chronicleOpen: document.querySelector("#chronicle-open"),
+    gameScreen: document.querySelector("#game-screen"),
+    gameScreenTitle: document.querySelector("#game-screen-title"),
+    gameScreenKicker: document.querySelector("#game-screen-kicker"),
+    gameScreenClose: document.querySelector("#game-screen-close"),
+    screenPages: Array.from(document.querySelectorAll(".game-screen-page")),
     dialogue: document.querySelector("#dialogue"),
     dialoguePortrait: document.querySelector("#dialogue-portrait"),
     dialogueSpeaker: document.querySelector("#dialogue-speaker"),
@@ -45,24 +58,15 @@ const elements = {
     heroList: document.querySelector("#hero-list"),
     heroCount: document.querySelector("#hero-count"),
     selectedName: document.querySelector("#selected-name"),
-    walletShort: document.querySelector("#wallet-short"),
-    connectionMode: document.querySelector("#connection-mode"),
-    contractStatus: document.querySelector("#contract-status"),
-    contractVersion: document.querySelector("#contract-version"),
-    nextHook: document.querySelector("#next-hook"),
-    contractAddress: document.querySelector("#contract-address"),
-    connectWallet: document.querySelector("#connect-wallet"),
-    reloadHeroes: document.querySelector("#reload-heroes"),
-    useSimulation: document.querySelector("#use-simulation"),
-    walletMessage: document.querySelector("#wallet-message"),
+    connectWallet: document.querySelector("#login-connect"),
+    walletMessage: document.querySelector("#login-message"),
     pendingCount: document.querySelector("#pending-count"),
     pendingList: document.querySelector("#pending-list"),
-    marketGrid: document.querySelector("#market-grid"),
-    marketClock: document.querySelector("#market-clock"),
     shardCount: document.querySelector("#shard-count"),
     weaponName: document.querySelector("#weapon-name"),
     weaponCount: document.querySelector("#weapon-count"),
     forgeStatus: document.querySelector("#forge-status"),
+    forgeAction: document.querySelector("#forge-action"),
     weaponList: document.querySelector("#weapon-list"),
     weaponEquip: document.querySelector("#weapon-equip"),
     weaponTransfer: document.querySelector("#weapon-transfer"),
@@ -71,7 +75,6 @@ const elements = {
     arenaRoomId: document.querySelector("#arena-room-id"),
     arenaCreate: document.querySelector("#arena-create"),
     arenaJoin: document.querySelector("#arena-join"),
-    arenaDemo: document.querySelector("#arena-demo"),
     arenaRoomStatus: document.querySelector("#arena-room-status"),
     arenaMessage: document.querySelector("#arena-message"),
     eventLog: document.querySelector("#event-log"),
@@ -86,6 +89,7 @@ const elements = {
     selectedHeroId: null,
     nearbyNpcId: null,
     activeNpcId: null,
+    activeScreen: null,
     keys: new Set(),
     touchMoves: new Set(),
     seenStories: new Set(),
@@ -105,7 +109,7 @@ const elements = {
       forgeSupport: false,
       llmGateSupport: false,
       arenaSupport: false,
-      message: "Paste the deployed game contract to use Somnia.",
+      message: "Waiting for wallet connection.",
       pendingRequests: [],
       busy: false,
     },
@@ -173,34 +177,9 @@ const elements = {
   }
 
   function hydrateContractAddress() {
-    const params = new URLSearchParams(window.location.search);
-    const queryAddress = params.get(CONTRACT_QUERY_PARAM);
-    const savedAddress = localStorage.getItem(STORAGE_CONTRACT_ADDRESS);
-    const address = queryAddress || savedAddress || DEFAULT_GAME_CONTRACT_ADDRESS;
-
-    if (!address) return;
-
-    elements.contractAddress.value = address;
+    const address = DEFAULT_GAME_CONTRACT_ADDRESS.trim();
     state.connection.contractAddress = address;
-    state.connection.message = queryAddress
-      ? "Contract address loaded from URL. Connect wallet when ready."
-      : savedAddress
-        ? "Saved contract address loaded. Connect wallet when ready."
-        : "Current Somnia test contract loaded. Connect wallet when ready.";
-
-    if (queryAddress) {
-      localStorage.setItem(STORAGE_CONTRACT_ADDRESS, queryAddress);
-    }
-  }
-
-  function syncContractAddressToUrl(address) {
-    const url = new URL(window.location.href);
-    if (address) {
-      url.searchParams.set(CONTRACT_QUERY_PARAM, address);
-    } else {
-      url.searchParams.delete(CONTRACT_QUERY_PARAM);
-    }
-    window.history.replaceState({}, "", url);
+    state.connection.message = address ? "Connect wallet to enter Sogent." : "Game contract is not configured yet.";
   }
 
   function wireDomEvents() {
@@ -228,14 +207,16 @@ const elements = {
     elements.dialogueText.addEventListener("click", finishDialogueAnimation);
     elements.storyClose.addEventListener("click", closeStoryModal);
     elements.storyText.addEventListener("click", finishStoryAnimation);
+    elements.gameScreenClose.addEventListener("click", closeGameScreen);
+    elements.chronicleOpen.addEventListener("click", () => openGameScreen("chronicle"));
     elements.arenaCreate.addEventListener("click", () => {
       void createArenaRoomFromInput();
     });
     elements.arenaJoin.addEventListener("click", () => {
       void joinArenaRoomFromInput();
     });
-    elements.arenaDemo.addEventListener("click", () => {
-      void runDemoArenaFight();
+    elements.forgeAction.addEventListener("click", () => {
+      void performBlacksmithAction();
     });
     elements.weaponEquip.addEventListener("click", () => {
       void equipSelectedWeapon();
@@ -259,27 +240,6 @@ const elements = {
 
     elements.connectWallet.addEventListener("click", () => {
       void connectSomniaAdapter();
-    });
-
-    elements.reloadHeroes.addEventListener("click", () => {
-      void reloadOnChainHeroes();
-    });
-
-    elements.useSimulation.addEventListener("click", useSimulationAdapter);
-
-    elements.contractAddress.addEventListener("input", () => {
-      const address = elements.contractAddress.value.trim();
-      state.connection.contractAddress = address;
-      if (address) {
-        localStorage.setItem(STORAGE_CONTRACT_ADDRESS, address);
-        syncContractAddressToUrl(address);
-        state.connection.message = "Contract address saved. Connect wallet to use it.";
-      } else {
-        localStorage.removeItem(STORAGE_CONTRACT_ADDRESS);
-        syncContractAddressToUrl("");
-        state.connection.message = "Paste the deployed game contract to use Somnia.";
-      }
-      renderConnection();
     });
 
     elements.heroList.addEventListener("click", (event) => {
@@ -855,9 +815,11 @@ const elements = {
 
   function spawnFloatingEvent(type, message) {
     if (!pixi?.floatingLayer) return;
+    if (type === "system") return;
 
     const anchor = getFloatingAnchor(message);
     const text = getFloatingText(type, message);
+    if (!text) return;
     const color = getFloatingColor(type);
     spawnFloatingText(text, anchor.x, anchor.y, color);
   }
@@ -892,7 +854,6 @@ const elements = {
     if (lower.includes("generated")) return "Hero recruited";
     if (lower.includes("crafted")) return "Weapon forged";
     if (lower.includes("banked")) return "Shards banked";
-    if (lower.includes("market")) return "Market updated";
     if (lower.includes("entered floor")) return "Gate opened";
     if (lower.includes("floor") && lower.includes("cleared")) {
       const loot = message.match(/Loot \+(\d+)/i);
@@ -903,7 +864,7 @@ const elements = {
     if (lower.includes("defeated") || lower.includes("broke")) return "Defeated";
     if (type === "danger") return "Failed";
     if (type === "reward") return "Reward";
-    return "Updated";
+    return "";
   }
 
   function getFloatingColor(type) {
@@ -1517,6 +1478,31 @@ const elements = {
     renderNearby();
   }
 
+  function openGameScreen(screenId) {
+    const titles = {
+      recruiter: ["Call a Hero", "Recruiter"],
+      guildmaster: ["Roster", "Guildmaster"],
+      blacksmith: ["Forge", "Blacksmith"],
+      arena: ["Challenges", "Arena Master"],
+      chronicle: ["Ledger", "Camp Chronicle"],
+    };
+    const [title, kicker] = titles[screenId] || titles.chronicle;
+    state.activeScreen = screenId;
+    closeDialogue();
+    elements.gameScreenTitle.textContent = title;
+    elements.gameScreenKicker.textContent = kicker;
+    elements.screenPages.forEach((page) => {
+      page.classList.toggle("is-active", page.id === `screen-${screenId}`);
+    });
+    elements.gameScreen.classList.remove("is-hidden");
+    renderAll();
+  }
+
+  function closeGameScreen() {
+    state.activeScreen = null;
+    elements.gameScreen.classList.add("is-hidden");
+  }
+
   function openAdventureStory(hero, story) {
     state.seenStories.add(getStoryKey(hero.id, story));
     elements.storyTitle.textContent = `${hero.name}'s Gate Legend`;
@@ -1552,12 +1538,12 @@ const elements = {
     if (state.connection.busy) return;
 
     if (npcId === "recruiter") {
-      await recruitHeroFromInput();
+      openGameScreen("recruiter");
       return;
     }
 
     if (npcId === "guildmaster") {
-      chooseNextHeroAtGuildmaster();
+      openGameScreen("guildmaster");
       return;
     }
 
@@ -1570,18 +1556,11 @@ const elements = {
 
     if (npcId === "oracle") {
       state.connection.busy = true;
-      state.connection.message = "Fetching market data...";
+      state.connection.message = "Reading the hidden omen...";
       renderAll();
       try {
-        const market = await adapter.updateMarket();
-        state.connection.message =
-          state.connection.mode === "somnia" ? "Market data read from the contract." : "Simulation market data updated.";
-        addEvent(
-          "system",
-          `Market Oracle fetched BTC ${formatUsd(market.bitcoinUsd)}, ETH ${formatUsd(
-            market.ethereumUsd,
-          )}, SOMI ${formatUsd(market.somniaUsd)}.`,
-        );
+        await adapter.updateMarket();
+        state.connection.message = "The omen is ready.";
       } catch (error) {
         state.connection.message = normalizeError(error);
         addEvent("danger", state.connection.message);
@@ -1659,23 +1638,7 @@ const elements = {
     }
 
     if (npcId === "blacksmith") {
-      const inventory = adapter.getInventory ? adapter.getInventory() : {};
-      const order = inventory.forgeOrder;
-      state.connection.busy = true;
-      state.connection.message = order?.active && order.ready ? "Claiming forged weapon..." : "Starting forge order...";
-      renderAll();
-      try {
-        const result = order?.active && order.ready ? await adapter.claimForgeOrder() : await adapter.startForgeOrder();
-        state.connection.message =
-          state.connection.mode === "somnia" ? "Forge transaction confirmed." : "Simulation forge action resolved.";
-        result.events.forEach((item) => addEvent(item.type, item.message));
-      } catch (error) {
-        state.connection.message = normalizeError(error);
-        addEvent("danger", state.connection.message);
-      } finally {
-        state.connection.busy = false;
-        renderAll();
-      }
+      openGameScreen("blacksmith");
       return;
     }
 
@@ -1687,11 +1650,27 @@ const elements = {
         renderAll();
         return;
       }
-      if (elements.arenaRoomId.value.trim()) {
-        await joinArenaRoomFromInput();
-      } else {
-        await createArenaRoomFromInput();
-      }
+      openGameScreen("arena");
+    }
+  }
+
+  async function performBlacksmithAction() {
+    const inventory = adapter.getInventory ? adapter.getInventory() : {};
+    const order = inventory.forgeOrder;
+    state.connection.busy = true;
+    state.connection.message = order?.active && order.ready ? "Claiming forged weapon..." : "Starting forge order...";
+    renderAll();
+    try {
+      const result = order?.active && order.ready ? await adapter.claimForgeOrder() : await adapter.startForgeOrder();
+      state.connection.message =
+        state.connection.mode === "somnia" ? "Forge transaction confirmed." : "Simulation forge action resolved.";
+      result.events.forEach((item) => addEvent(item.type, item.message));
+    } catch (error) {
+      state.connection.message = normalizeError(error);
+      addEvent("danger", state.connection.message);
+    } finally {
+      state.connection.busy = false;
+      renderAll();
     }
   }
 
@@ -1717,7 +1696,7 @@ const elements = {
       elements.heroName.value = "";
       state.connection.message =
         state.connection.mode === "somnia"
-          ? "Recruitment rite confirmed. Waiting for market omens."
+          ? "Recruitment rite confirmed."
           : "Simulation hero generated.";
 
       result.events.forEach((item) => addEvent(item.type, item.message));
@@ -2125,35 +2104,16 @@ const elements = {
       mode,
       wallet,
       contractAddress,
-      contractVersion,
-      gateSupport,
-      forgeSupport,
-      llmGateSupport,
-      arenaSupport,
       message,
       busy,
       pendingRequests,
     } = state.connection;
-    elements.connectionMode.textContent = mode === "somnia" ? "Somnia Contract" : "Simulation";
-    elements.walletShort.textContent = wallet ? shortAddress(wallet) : "Not connected";
-    elements.contractStatus.textContent = contractAddress ? shortAddress(contractAddress) : "No address set";
-    elements.contractVersion.textContent = contractVersion;
-    elements.nextHook.textContent =
-      mode === "somnia" && gateSupport && forgeSupport && llmGateSupport && arenaSupport
-        ? "full camp loop"
-        : mode === "somnia" && gateSupport && forgeSupport && llmGateSupport
-          ? "hero + gate legend + forge"
-        : mode === "somnia" && gateSupport && forgeSupport
-          ? "hero + gate + forge"
-        : mode === "somnia" && gateSupport
-          ? "hero + gate"
-          : mode === "somnia"
-          ? "recruitment rite"
-            : "camp simulation";
+    const unlocked = mode === "somnia" && Boolean(wallet);
+    elements.appShell.classList.toggle("is-unlocked", unlocked);
     elements.walletMessage.textContent = message;
-    elements.connectWallet.disabled = busy;
-    elements.reloadHeroes.disabled = busy || mode !== "somnia";
-    elements.useSimulation.disabled = busy || mode === "simulation";
+    elements.connectWallet.disabled = busy || !contractAddress;
+    elements.hudWallet.textContent = wallet ? shortAddress(wallet) : "Not connected";
+    elements.hudPending.textContent = String(pendingRequests.length);
     elements.heroName.disabled = busy;
     elements.recruitSubmit.disabled = busy;
     elements.pendingCount.textContent = String(pendingRequests.length);
@@ -2166,6 +2126,8 @@ const elements = {
     elements.shardCount.textContent = String(inventory.shards);
     elements.weaponCount.textContent = String(inventory.weapons);
     elements.weaponName.textContent = inventory.weaponName || "None";
+    elements.hudShards.textContent = String(inventory.shards);
+    elements.hudWeapon.textContent = inventory.weaponName || "None";
     renderForgeStatus(inventory);
     renderWeaponList(inventory.weaponItems || []);
   }
@@ -2175,6 +2137,8 @@ const elements = {
     elements.forgeStatus.classList.remove("is-working", "is-ready");
     if (!order?.active) {
       elements.forgeStatus.textContent = "Forge: Idle";
+      elements.forgeAction.textContent = `Start Order (${inventory.forgeCost || state.forgeCost} shards)`;
+      elements.forgeAction.disabled = state.connection.busy || inventory.shards < (inventory.forgeCost || state.forgeCost);
       return;
     }
 
@@ -2182,11 +2146,15 @@ const elements = {
     if (remaining <= 0) {
       elements.forgeStatus.textContent = `Shard Blade ${order.tier} ready to claim`;
       elements.forgeStatus.classList.add("is-ready");
+      elements.forgeAction.textContent = "Claim Weapon";
+      elements.forgeAction.disabled = state.connection.busy;
       return;
     }
 
     elements.forgeStatus.textContent = `Forge working... ${formatCountdown(remaining)}`;
     elements.forgeStatus.classList.add("is-working");
+    elements.forgeAction.textContent = "Forge Working";
+    elements.forgeAction.disabled = true;
   }
 
   function renderWeaponList(weapons) {
@@ -2241,7 +2209,6 @@ const elements = {
 
     elements.arenaCreate.disabled = state.connection.busy || !hero;
     elements.arenaJoin.disabled = state.connection.busy || !hero || !roomId || createdByCurrentWallet;
-    elements.arenaDemo.disabled = state.connection.busy || state.connection.mode !== "simulation";
     elements.arenaRoomStatus.textContent = roomId ? `Challenge ${roomId}` : "No challenge";
 
     if (story) {
@@ -2270,6 +2237,7 @@ const elements = {
 
   function renderPendingRequests() {
     const pending = state.connection.pendingRequests;
+    elements.hudPending.textContent = String(pending.length);
     if (pending.length === 0) {
       const row = document.createElement("li");
       row.className = "empty";
@@ -2283,7 +2251,7 @@ const elements = {
       const title = document.createElement("strong");
       title.textContent = `${request.name} / Omen ${request.groupId}`;
       const status = document.createElement("span");
-      status.textContent = request.txHash ? `Awaiting the market rite after ${shortAddress(request.txHash)}` : request.status;
+      status.textContent = request.txHash ? `Awaiting recruitment after ${shortAddress(request.txHash)}` : request.status;
       row.append(title, status);
       return row;
     });
@@ -2291,12 +2259,15 @@ const elements = {
   }
 
   async function connectSomniaAdapter() {
-    const address = elements.contractAddress.value.trim();
+    const address = state.connection.contractAddress || DEFAULT_GAME_CONTRACT_ADDRESS.trim();
     state.connection.busy = true;
-    state.connection.message = "Connecting wallet...";
+    state.connection.message = address ? "Connecting wallet..." : "Game contract is not configured yet.";
     renderConnection();
 
     try {
+      if (!address) {
+        throw new Error("Game contract is not configured.");
+      }
       const contractAdapter = new SomniaContractAdapter({
         contractAddress: address,
         onHeroRequested: handleContractHeroRequest,
@@ -2321,8 +2292,7 @@ const elements = {
       state.connection.arenaSupport = contractAdapter.arenaSupport;
       state.forgeCost = contractAdapter.forgeCost || WEAPON_SHARD_COST;
       state.selectedWeaponId = null;
-      state.connection.message = "Connected. Recruiter, Gate Warden, and Blacksmith now submit Somnia transactions.";
-      localStorage.setItem(STORAGE_CONTRACT_ADDRESS, contractAdapter.contractAddress);
+      state.connection.message = "Connected. Enter Sogent and speak with the camp agents.";
 
       const loadedHeroes = await contractAdapter.loadOwnerHeroes();
       loadedHeroes.forEach(addOrReplaceHero);
@@ -2400,9 +2370,9 @@ const elements = {
       groupId: Number(request.groupId),
       name: request.name,
       txHash: request.txHash || "",
-      status: "Awaiting the market rite",
+      status: "Awaiting recruitment rite",
     });
-    addEvent("system", `Recruitment rite opened for ${request.name}. Waiting for the market omens.`);
+    addEvent("system", `Recruitment rite opened for ${request.name}.`);
     renderAll();
   }
 
@@ -2456,37 +2426,14 @@ const elements = {
   }
 
   function renderMarket(market) {
-    const rows = [
-      ["BTC/USD", market.bitcoinUsd],
-      ["ETH/USD", market.ethereumUsd],
-      ["SOMI/USD", market.somniaUsd],
-    ];
-
-    elements.marketGrid.replaceChildren(
-      ...rows.map(([label, value]) => {
-        const cell = document.createElement("div");
-        cell.className = "market-cell";
-
-        const labelEl = document.createElement("span");
-        labelEl.className = "market-label";
-        labelEl.textContent = label;
-
-        const priceEl = document.createElement("span");
-        priceEl.className = "market-price";
-        priceEl.textContent = formatUsd(value);
-
-        cell.append(labelEl, priceEl);
-        return cell;
-      }),
-    );
-
-    elements.marketClock.textContent = formatTime(market.timestamp);
+    void market;
   }
 
   function renderSelectedHero() {
     const hero = getSelectedHero();
     elements.heroCount.textContent = String(state.heroes.length);
     elements.selectedName.textContent = hero ? hero.name : "No hero";
+    elements.hudHero.textContent = hero ? hero.name : "No hero";
 
     if (!hero) {
       const empty = document.createElement("div");
@@ -2508,6 +2455,11 @@ const elements = {
     img.alt = `${heroPortrait.name} portrait`;
 
     const body = document.createElement("div");
+    body.className = "selected-body";
+
+    const header = document.createElement("div");
+    header.className = "selected-header";
+
     const title = document.createElement("div");
     title.className = "selected-title";
     title.textContent = hero.name;
@@ -2517,9 +2469,58 @@ const elements = {
     subtitle.textContent = `${rarity.name} ${heroClass.name}`;
     subtitle.style.color = rarity.color;
 
-    body.append(title, subtitle, statGrid(hero), equippedWeaponBadge(hero), runStatusCard(hero));
+    header.append(title, subtitle);
+    body.append(header, selectedTraitLine(hero), selectedHeroLines(hero));
     card.append(img, body);
     elements.selectedHero.replaceChildren(card);
+  }
+
+  function selectedTraitLine(hero) {
+    const row = document.createElement("div");
+    row.className = "selected-traits";
+
+    [
+      ["BRV", hero.bravery],
+      ["GRD", hero.greed],
+      ["WIS", hero.wisdom],
+    ].forEach(([label, value]) => {
+      const item = document.createElement("span");
+      const labelEl = document.createElement("small");
+      labelEl.textContent = label;
+      item.append(labelEl, ` ${value}`);
+      row.appendChild(item);
+    });
+
+    return row;
+  }
+
+  function selectedHeroLines(hero) {
+    const lines = document.createElement("div");
+    lines.className = "selected-lines";
+
+    const weapon = adapter.getEquippedWeapon ? adapter.getEquippedWeapon(hero.id) : null;
+    const weaponLine = selectedInfoLine("Weapon", weapon ? `${weapon.name} +${weapon.arenaBonus}` : "No weapon");
+
+    const run = adapter.getRun(hero.id);
+    const runLine = selectedInfoLine("Gate", selectedRunText(run));
+
+    lines.append(weaponLine, runLine);
+    return lines;
+  }
+
+  function selectedInfoLine(label, value) {
+    const line = document.createElement("p");
+    const labelEl = document.createElement("span");
+    labelEl.textContent = label;
+    line.append(labelEl, ` ${value}`);
+    return line;
+  }
+
+  function selectedRunText(run) {
+    if (!run) return "Ready at camp";
+    if (run.active) return run.pendingDecision ? `Floor ${run.floor}, waiting` : `Floor ${run.floor}, ${run.hp} HP`;
+    if (run.hp <= 0) return "Defeated";
+    return `Returned with ${run.loot} shards`;
   }
 
   function equippedWeaponBadge(hero) {
@@ -2849,23 +2850,20 @@ const elements = {
   }
 
   function getNpcActionLabel(npc) {
+    if (npc.id === "recruiter") return "Recruit";
+
     if (npc.id === "guildmaster") {
-      return state.heroes.length ? "Next Hero" : "Recruit First";
+      return "Roster";
     }
 
     if (npc.id === "arena-master") {
       const roomId = Number(elements.arenaRoomId.value.trim() || state.arena.lastRoomId || 0);
       if (roomId && getUnreadArenaStory(roomId)) return "See Fight";
-      return roomId ? "Accept" : "Challenge";
+      return "Arena";
     }
 
     if (npc.id === "blacksmith") {
-      const inventory = adapter.getInventory ? adapter.getInventory() : { shards: 0 };
-      const forgeCost = inventory.forgeCost || state.forgeCost;
-      const order = inventory.forgeOrder;
-      if (order?.active && order.ready) return "Claim Weapon";
-      if (order?.active) return "Forge Working";
-      return inventory.shards >= forgeCost ? "Start Order" : "Need Shards";
+      return "Forge";
     }
 
     if (npc.id !== "warden") return npc.label;
@@ -2882,26 +2880,17 @@ const elements = {
 
   function getNpcActionDisabled(npc) {
     if (state.connection.busy) return true;
-    if (npc.id === "guildmaster") {
-      return state.heroes.length === 0;
-    }
+    if (npc.id === "recruiter" || npc.id === "guildmaster" || npc.id === "blacksmith") return false;
     if (npc.id === "arena-master") {
       const roomId = Number(elements.arenaRoomId.value.trim() || state.arena.lastRoomId || 0);
       if (roomId && getUnreadArenaStory(roomId)) return false;
-      return !getSelectedHero();
+      return false;
     }
     if (npc.id === "warden") {
       const hero = getSelectedHero();
       if (!hero) return true;
       const run = adapter.getRun(hero.id);
       return Boolean(run?.active && run.pendingDecision);
-    }
-    if (npc.id === "blacksmith") {
-      const inventory = adapter.getInventory ? adapter.getInventory() : { shards: 0 };
-      const forgeCost = inventory.forgeCost || state.forgeCost;
-      const order = inventory.forgeOrder;
-      if (order?.active) return !order.ready;
-      return inventory.shards < forgeCost;
     }
     return false;
   }

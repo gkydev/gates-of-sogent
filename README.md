@@ -35,10 +35,10 @@ Contract version:
 0.6.0-forge-nfts
 ```
 
-Previous Somnia Testnet deployment:
+Current Somnia Testnet deployment:
 
 ```text
-0xF0045108604638ec0c4f986Ff44fCeBB9946607e
+0xEA7bc83F5b52BA4685dEf6d29D748DC10c0b9E69
 ```
 
 Included:
@@ -145,22 +145,12 @@ source .env
 
 The `--value` above is the current testnet fee returned by `requiredTotalFee()`. If the call returns a different first integer later, use that value.
 
-Start a live gate run for hero `1`:
-
-```bash
-source .env
-./tools/foundry-dev.sh cast-send-private $GAME_ADDRESS "startGateRun(uint256)" 1 \
-  --rpc-url $SOMNIA_RPC_URL \
-  --legacy \
-  --gas-limit 5000000
-```
-
-Request a live LLM adventure route and story for hero `1`:
+Start a live LLM gate adventure for hero `1`:
 
 ```bash
 source .env
 ./tools/foundry-dev.sh cast call $GAME_ADDRESS "requiredGateDecisionFee()(uint256)" --rpc-url $SOMNIA_RPC_URL
-./tools/foundry-dev.sh cast-send-private $GAME_ADDRESS "requestGateDecision(uint256)" 1 \
+./tools/foundry-dev.sh cast-send-private $GAME_ADDRESS "startAdventure(uint256)" 1 \
   --value 240000000000000000 \
   --rpc-url $SOMNIA_RPC_URL \
   --legacy \
@@ -187,17 +177,11 @@ Then open:
 http://127.0.0.1:4173/index.html
 ```
 
-The frontend starts in simulation mode. It has a PixiJS camp where the player can move around, click locations, interact with NPC agents, recruit heroes, fetch simulated market data, and run simple gate encounters. It mirrors the contract idea by using BTC, ETH, and SOMI market values to generate a hero seed, class, rarity, and traits.
+The frontend starts at a wallet gate. After connecting, the player enters the PixiJS camp and uses NPCs for the main actions: Recruiter for hero creation, Guildmaster for roster selection, Gate Warden for adventures, Blacksmith for forge orders and weapons, Arena Master for challenges, and Chronicle for logs.
 
-You can also paste a deployed `GatesOfSogentMarketGame` contract address and connect a wallet. In Somnia mode, hero recruitment calls `requestHero(name)`, shows the pending Somnia Agent request, and waits for the contract `HeroGenerated` event.
+The deployed `GatesOfSogentMarketGame` address is configured in `src/config.js`. In Somnia mode, hero recruitment calls `requestHero(name)`, shows the pending Somnia Agent request in the Chronicle, and waits for the contract `HeroGenerated` event. Market values are used for the hero seed but are hidden from the player UI.
 
 The frontend checks `contractVersion()`, `supportsGateRuns()`, `supportsForge()`, and `supportsWeaponNFTs()` when connecting, so deploy the latest contract in this repo before using the Gate Warden or Blacksmith on-chain.
-
-You can prefill the contract field with:
-
-```text
-http://127.0.0.1:4173/index.html?contract=YOUR_CONTRACT_ADDRESS
-```
 
 The current contract covers hero generation, simple gate runs, banked shards, timed forge orders, ERC721 weapon minting, NFT transfer, and manual weapon equip for arena fights.
 

@@ -7,6 +7,7 @@
   --line: #3f4a48;
   --line-soft: #2a3434;
   --teal: #42d6c5;
+  --cyan: #42d6c5;
   --amber: #f0a94b;
   --violet: #9b6cff;
   --moss: #86b86f;
@@ -93,6 +94,103 @@ input:focus {
   padding: 18px 0 24px;
 }
 
+.app-shell:not(.is-unlocked) {
+  width: 100%;
+  min-height: 100vh;
+  padding: 0;
+}
+
+.app-shell:not(.is-unlocked) .topbar,
+.app-shell:not(.is-unlocked) .game-shell {
+  display: none;
+}
+
+.app-shell.is-unlocked .login-screen {
+  display: none;
+}
+
+.login-screen {
+  position: relative;
+  display: grid;
+  min-height: 100vh;
+  place-items: center;
+  padding: 28px;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 50% 26%, rgba(66, 214, 197, 0.16), transparent 24rem),
+    linear-gradient(180deg, #091011 0%, #111616 58%, #050707 100%);
+}
+
+.login-screen::before {
+  position: absolute;
+  inset: -18px;
+  background:
+    linear-gradient(180deg, rgba(5, 8, 9, 0.4), rgba(5, 8, 9, 0.86)),
+    url("./public/assets/world/sogent-camp.png") center / cover no-repeat;
+  content: "";
+  image-rendering: pixelated;
+  opacity: 0.42;
+}
+
+.login-screen::after {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(circle at 50% 38%, rgba(66, 214, 197, 0.18), transparent 24rem),
+    linear-gradient(90deg, rgba(4, 7, 8, 0.82), rgba(4, 7, 8, 0.18) 50%, rgba(4, 7, 8, 0.82));
+  content: "";
+}
+
+.login-card {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  width: min(500px, calc(100vw - 32px));
+  justify-items: center;
+  gap: 14px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  image-rendering: pixelated;
+  text-align: center;
+}
+
+.login-logo {
+  display: block;
+  width: auto;
+  max-width: min(430px, 86vw);
+  max-height: 220px;
+  object-fit: contain;
+  image-rendering: pixelated;
+  filter:
+    drop-shadow(0 16px 24px rgba(0, 0, 0, 0.7))
+    drop-shadow(0 0 22px rgba(66, 214, 197, 0.16));
+}
+
+.login-kicker {
+  color: var(--teal);
+  font-size: 0.84rem;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.login-copy,
+.login-message {
+  max-width: 30rem;
+  color: #dbe3dc;
+  font-size: 0.92rem;
+  line-height: 1.45;
+  text-shadow: 0 2px 0 rgba(0, 0, 0, 0.72);
+}
+
+.login-message {
+  min-height: 2.8rem;
+  margin-top: 2px;
+  color: var(--muted);
+  display: grid;
+  place-items: center;
+}
+
 .topbar {
   display: flex;
   justify-content: center;
@@ -110,6 +208,7 @@ input:focus {
 
 h1,
 h2,
+h3,
 p {
   margin: 0;
 }
@@ -137,17 +236,15 @@ h1 {
   filter: drop-shadow(0 12px 22px rgba(0, 0, 0, 0.58)) drop-shadow(0 0 18px rgba(66, 214, 197, 0.12));
 }
 
-h2 {
+h2,
+h3 {
   color: #f8d790;
   font-size: 1rem;
   line-height: 1;
 }
 
 .game-shell {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 388px;
-  gap: 14px;
-  align-items: start;
+  display: block;
 }
 
 .world-panel,
@@ -160,6 +257,8 @@ h2 {
 
 .world-panel {
   position: relative;
+  width: min(1280px, 100%);
+  margin: 0 auto;
   min-height: 620px;
   overflow: hidden;
 }
@@ -213,9 +312,7 @@ h2 {
 }
 
 .location-tag span,
-.stat-label,
-.market-label,
-.contract-grid dt {
+.stat-label {
   display: block;
   color: var(--muted);
   font-size: 0.74rem;
@@ -240,6 +337,69 @@ h2 {
   padding: 0 9px 1px;
   font-size: 0.82rem;
   line-height: 1;
+}
+
+.minimal-hud {
+  position: absolute;
+  top: 58px;
+  right: 12px;
+  z-index: 5;
+  display: grid;
+  width: min(376px, 42vw);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+  pointer-events: auto;
+}
+
+.minimal-hud div,
+.minimal-hud button {
+  min-width: 0;
+}
+
+.minimal-hud div {
+  border: 0;
+  border-radius: 0;
+  background:
+    url("./public/assets/ui/generated/input-dark.png") center / 100% 100% no-repeat,
+    rgba(9, 13, 14, 0.88);
+  image-rendering: pixelated;
+  padding: 9px 14px;
+}
+
+.minimal-hud span {
+  display: block;
+  color: var(--muted);
+  font-size: 0.68rem;
+  text-transform: uppercase;
+}
+
+.minimal-hud strong {
+  display: block;
+  margin-top: 3px;
+  overflow: hidden;
+  color: var(--teal);
+  font-size: 0.82rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.minimal-hud button {
+  grid-column: 1 / -1;
+  width: 100%;
+  min-height: 34px;
+}
+
+.minimal-hud button span {
+  display: inline;
+  color: var(--amber);
+  font-size: inherit;
+  text-transform: none;
+}
+
+.world-panel:has(.dialogue:not(.is-hidden)) .minimal-hud,
+.world-panel:has(.game-screen:not(.is-hidden)) .minimal-hud,
+.world-panel:has(.story-modal:not(.is-hidden)) .minimal-hud {
+  display: none;
 }
 
 .dialogue {
@@ -378,6 +538,93 @@ h2 {
   place-items: center;
   padding: 28px;
   background: rgba(3, 7, 8, 0.52);
+}
+
+.game-screen {
+  position: absolute;
+  inset: 0;
+  z-index: 8;
+  display: grid;
+  place-items: center;
+  padding: 34px;
+  background: rgba(3, 7, 8, 0.5);
+}
+
+.game-screen.is-hidden {
+  display: none;
+}
+
+.game-screen-card {
+  width: min(900px, 100%);
+  max-height: min(540px, calc(100% - 24px));
+  overflow: auto;
+  border: 0;
+  border-radius: 0;
+  background:
+    url("./public/assets/ui/generated/dialogue-panel-wide.png") center / 100% 100% no-repeat,
+    rgba(8, 12, 13, 0.97);
+  image-rendering: pixelated;
+  padding: 30px 38px 34px;
+  box-shadow: 0 22px 52px rgba(0, 0, 0, 0.62);
+}
+
+.game-screen-card:has(#screen-guildmaster.is-active) {
+  width: min(760px, 100%);
+  padding: 28px 36px 32px;
+}
+
+.game-screen-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 18px;
+}
+
+.game-screen-heading span {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--teal);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+}
+
+.game-screen-page {
+  display: none;
+}
+
+.game-screen-page.is-active {
+  display: block;
+}
+
+.screen-help {
+  margin-top: 10px;
+  color: var(--muted);
+  font-size: 0.84rem;
+  line-height: 1.4;
+}
+
+.roster-heading {
+  margin-top: 14px;
+}
+
+#screen-guildmaster.is-active {
+  display: grid;
+  gap: 12px;
+}
+
+#screen-guildmaster .selected-hero {
+  margin-top: 0;
+}
+
+#screen-guildmaster .roster-heading {
+  margin: 2px 0 0;
+}
+
+.chronicle-grid {
+  display: grid;
+  grid-template-columns: minmax(230px, 0.75fr) minmax(0, 1.25fr);
+  gap: 14px;
 }
 
 .story-modal.is-hidden {
@@ -565,20 +812,89 @@ h2 {
   font-size: 0.84rem;
 }
 
-.market-grid,
-.contract-grid,
+.selected-body {
+  display: grid;
+  min-width: 0;
+  gap: 8px;
+}
+
+.selected-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+}
+
+.selected-traits {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.selected-traits span {
+  min-width: 70px;
+  border: 1px solid rgba(66, 214, 197, 0.22);
+  background: rgba(7, 12, 13, 0.62);
+  padding: 5px 8px;
+  color: #f2c46e;
+  font-weight: 700;
+}
+
+.selected-traits small {
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 400;
+}
+
+.selected-lines {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+}
+
+.selected-lines p {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid rgba(63, 74, 72, 0.74);
+  background: rgba(8, 13, 14, 0.72);
+  padding: 7px 9px;
+  color: #dfe7dd;
+  font-size: 0.82rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.selected-lines span {
+  color: var(--amber);
+  font-weight: 700;
+}
+
+#screen-guildmaster .selected-card {
+  grid-template-columns: 76px minmax(0, 1fr);
+  gap: 14px;
+  min-height: 112px;
+  border: 1px solid rgba(240, 169, 75, 0.34);
+  background: rgba(8, 13, 14, 0.58);
+  padding: 12px;
+}
+
+#screen-guildmaster .selected-card img {
+  width: 76px;
+  height: 76px;
+  border-color: rgba(240, 169, 75, 0.42);
+}
+
+#screen-guildmaster .selected-subtitle {
+  margin: 0;
+}
+
 .stat-grid,
 .inventory-grid {
   display: grid;
   gap: 8px;
 }
 
-.market-grid {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-}
-
-.market-cell,
-.contract-grid div,
 .stat-box,
 .inventory-grid div {
   min-width: 0;
@@ -587,14 +903,10 @@ h2 {
   background: #0f1415;
 }
 
-.market-cell,
-.contract-grid div,
 .inventory-grid div {
   padding: 9px;
 }
 
-.market-price,
-.contract-grid dd,
 .stat-value,
 .inventory-grid strong {
   display: block;
@@ -640,6 +952,11 @@ h2 {
 .forge-status.is-ready {
   border-color: rgba(240, 169, 75, 0.68);
   color: var(--amber);
+}
+
+.forge-action {
+  width: 100%;
+  margin-top: 8px;
 }
 
 .weapon-list {
@@ -710,23 +1027,6 @@ h2 {
   min-width: 0;
 }
 
-.contract-grid {
-  margin: 0;
-  grid-template-columns: 1fr;
-}
-
-.wallet-tools {
-  display: grid;
-  gap: 8px;
-  margin-top: 10px;
-}
-
-.wallet-actions {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 92px 116px;
-  gap: 8px;
-}
-
 .arena-form {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
@@ -737,43 +1037,11 @@ h2 {
   width: 100%;
 }
 
-.arena-demo-button {
-  grid-column: 1 / -1;
-}
-
 .arena-message {
   margin-top: 8px;
   color: var(--muted);
   font-size: 0.8rem;
   line-height: 1.35;
-}
-
-.wallet-message {
-  color: var(--muted);
-  font-size: 0.8rem;
-  line-height: 1.35;
-}
-
-.chain-queue {
-  border: 1px solid var(--line-soft);
-  border-radius: 5px;
-  background: #0f1415;
-  padding: 8px;
-}
-
-.queue-heading {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  margin-bottom: 7px;
-  color: var(--muted);
-  font-size: 0.74rem;
-  text-transform: uppercase;
-}
-
-.queue-heading strong {
-  color: var(--teal);
 }
 
 .pending-list {
@@ -873,6 +1141,13 @@ h2 {
   padding-right: 2px;
 }
 
+#screen-guildmaster .hero-list {
+  max-height: 184px;
+  gap: 6px;
+  padding-right: 0;
+  scrollbar-width: thin;
+}
+
 .hero-card {
   display: grid;
   grid-template-columns: 64px minmax(0, 1fr);
@@ -886,6 +1161,14 @@ h2 {
   padding: 8px;
   text-align: left;
   box-shadow: none;
+}
+
+#screen-guildmaster .hero-card {
+  grid-template-columns: 48px minmax(0, 1fr);
+  min-height: 60px;
+  border-color: rgba(63, 74, 72, 0.72);
+  background: rgba(8, 13, 14, 0.66);
+  padding: 6px;
 }
 
 .hero-card:hover,
@@ -905,6 +1188,11 @@ h2 {
   border-radius: 4px;
   object-fit: cover;
   image-rendering: pixelated;
+}
+
+#screen-guildmaster .hero-card img {
+  width: 48px;
+  height: 48px;
 }
 
 .hero-name-row {
@@ -1010,12 +1298,12 @@ h2 {
 }
 
 @media (max-width: 1180px) {
-  .game-shell {
-    grid-template-columns: 1fr;
+  .app-shell {
+    width: min(1280px, calc(100vw - 20px));
   }
 
-  .hud {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+  .minimal-hud {
+    width: min(336px, 48vw);
   }
 }
 
@@ -1023,6 +1311,15 @@ h2 {
   .app-shell {
     width: min(100vw - 18px, 720px);
     padding-top: 12px;
+  }
+
+  .app-shell:not(.is-unlocked) {
+    width: 100%;
+    padding: 0;
+  }
+
+  .login-screen {
+    padding: 16px;
   }
 
   .topbar {
@@ -1045,13 +1342,32 @@ h2 {
     min-height: 480px;
   }
 
-  .hud,
-  .market-grid,
+  .minimal-hud {
+    top: auto;
+    right: 10px;
+    bottom: 10px;
+    left: 10px;
+    width: auto;
+  }
+
+  .game-screen {
+    padding: 12px;
+  }
+
+  .game-screen-card {
+    max-height: calc(100% - 12px);
+    padding: 24px 26px 28px;
+  }
+
+  .game-screen-heading {
+    align-items: flex-start;
+  }
+
+  .chronicle-grid,
   .inventory-grid,
   .arena-form,
   .recruit-form,
-  .weapon-actions,
-  .wallet-actions {
+  .weapon-actions {
     grid-template-columns: 1fr;
   }
 

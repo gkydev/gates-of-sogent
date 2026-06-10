@@ -12,8 +12,8 @@ import {
   PLAYER_DIRECTIONS,
   NPC_SHEET_IDS,
   STANDALONE_NPC_ASSETS,
-} from "./config.js?v=20260609-demo-fight2";
-import { normalizeError } from "./utils.js?v=20260609-demo-fight2";
+} from "./config.js?v=20260610-roster1";
+import { normalizeError } from "./utils.js?v=20260610-roster1";
 
 export async function loadTextures({ addEvent } = {}) {
     const result = {

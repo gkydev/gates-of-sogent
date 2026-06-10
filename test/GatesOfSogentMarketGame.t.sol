@@ -198,36 +198,20 @@ contract GatesOfSogentMarketGameTest {
         requestHero("Aryn");
         fulfillMarketRequests();
 
-        vm.startPrank(PLAYER);
-        game.startGateRun(1);
-
-        for (uint256 i = 0; i < 12 && runIsActive(1); i++) {
-            game.resolveGateFloor(1);
-        }
-        vm.stopPrank();
-
-        (, , uint16 hp, ) = game.gateRuns(1);
-        assertTrue(hp <= 100, "hp cannot increase");
-    }
-
-    function testRequestGateDecisionCreatesLLMRequest() public {
-        requestHero("Aryn");
-        fulfillMarketRequests();
-
-        vm.startPrank(PLAYER);
-        game.startGateRun(1);
         uint256 fee = game.requiredGateDecisionFee();
         vm.deal(PLAYER, fee);
-        uint256 requestId = game.requestGateDecision{value: fee}(1);
-        vm.stopPrank();
+        vm.prank(PLAYER);
+        uint256 requestId = game.startAdventure{value: fee}(1);
 
-        assertEq(requestId, 4, "wrong llm request id");
-        assertEq(game.pendingRequests(4), true, "llm request missing");
-        assertEq(game.pendingGateDecision(1), true, "hero decision not pending");
-        assertEq(uint256(game.requestKind(4)), uint256(game.REQUEST_GATE_DECISION()), "wrong llm request kind");
-        assertEq(game.requestToGroupId(4), 1, "wrong llm hero id");
+        mockAgents.fulfillString(
+            requestId,
+            "ROUTE=S\nSTORY=Wolf Tunnel rose before Aryn, and she returned with the shards she could carry.",
+            ResponseStatus.Success
+        );
 
-        assertMockLLMRequest(4);
+        (bool active, , uint16 hp, ) = game.gateRuns(1);
+        assertEq(active, false, "run should close");
+        assertTrue(hp <= 100, "hp cannot increase");
     }
 
     function testStartAdventureStartsRunAndCreatesLLMRequest() public {
@@ -255,15 +239,13 @@ contract GatesOfSogentMarketGameTest {
         requestHero("Aryn");
         fulfillMarketRequests();
 
-        vm.startPrank(PLAYER);
-        game.startGateRun(1);
         uint256 fee = game.requiredGateDecisionFee();
         vm.deal(PLAYER, fee);
-        game.requestGateDecision{value: fee}(1);
-        vm.stopPrank();
+        vm.prank(PLAYER);
+        uint256 requestId = game.startAdventure{value: fee}(1);
 
         mockAgents.fulfillString(
-            4,
+            requestId,
             "ROUTE=PPS\nSTORY=Aryn cut through the wolf tunnel, endured the crypt, then returned before the gate swallowed him.",
             ResponseStatus.Success
         );
@@ -483,12 +465,16 @@ contract GatesOfSogentMarketGameTest {
 
     function earnShards(address player, uint256 heroId, uint256 minimumShards) private {
         for (uint256 attempt = 0; attempt < 16 && game.shards(player) < minimumShards; attempt++) {
-            vm.startPrank(player);
-            game.startGateRun(heroId);
-            for (uint256 step = 0; step < 12 && runIsActive(heroId); step++) {
-                game.resolveGateFloor(heroId);
-            }
-            vm.stopPrank();
+            uint256 fee = game.requiredGateDecisionFee();
+            vm.deal(player, fee);
+            vm.prank(player);
+            uint256 requestId = game.startAdventure{value: fee}(heroId);
+
+            mockAgents.fulfillString(
+                requestId,
+                "ROUTE=PPPS\nSTORY=Wolf Tunnel opened the trial. Soulsucker Crypt tested the hero. Bone Knight Bridge nearly broke resolve. Ash Warden Hall sent the hero home with shards.",
+                ResponseStatus.Success
+            );
         }
 
         assertTrue(game.shards(player) >= minimumShards, "test helper could not earn enough shards");
@@ -539,7 +525,7 @@ contract GatesOfSogentMarketGameTest {
         assertEq(payloadSelector(payload), ILLMAgent.inferString.selector, "wrong llm payload selector");
         assertTrue(contains(payload, bytes("ROUTE=")), "route format missing from prompt");
         assertTrue(contains(payload, bytes("STORY=")), "story format missing from prompt");
-        assertTrue(contains(payload, bytes("Floor facts")), "floor preview missing from prompt");
+        assertTrue(contains(payload, bytes("Floors:")), "floor preview missing from prompt");
         assertTrue(contains(payload, bytes("Aryn")), "hero name missing from prompt");
     }
 

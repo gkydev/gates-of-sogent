@@ -5,16 +5,31 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>The Gate of Sogents</title>
     <link rel="icon" type="image/png" href="./public/assets/ui/generated/favicon.png?v=20260609-2" />
-    <link rel="stylesheet" href="./styles.css" />
+    <link rel="stylesheet" href="./styles.css?v=20260610-roster1" />
     <script src="https://cdn.jsdelivr.net/npm/pixi.js@8.18.1/dist/pixi.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/ethers@6.16.0/dist/ethers.umd.min.js"></script>
-    <script type="module" src="./src/app.js?v=20260609-demo-fight2"></script>
+    <script type="module" src="./src/app.js?v=20260610-roster1"></script>
   </head>
   <body>
-    <main class="app-shell">
+    <main id="app-shell" class="app-shell">
+      <section id="login-screen" class="login-screen" aria-label="Wallet login">
+        <div class="login-card">
+          <img
+            class="login-logo"
+            src="./public/assets/ui/generated/game-logo-pixel.png"
+            alt="The Gate of Sogents"
+            decoding="async"
+          />
+          <p class="login-kicker">Somnia Agents RPG</p>
+          <h1>The Gate of Sogents</h1>
+          <p class="login-copy">Connect your wallet to enter Sogent. The game contract is configured by the build.</p>
+          <button id="login-connect" type="button">Connect Wallet</button>
+          <p id="login-message" class="login-message">Waiting for wallet connection.</p>
+        </div>
+      </section>
+
       <header class="topbar">
         <div class="brand-lockup">
-          <h1>The Gate of Sogents</h1>
           <img
             class="game-logo"
             src="./public/assets/ui/generated/game-logo-pixel.png"
@@ -34,6 +49,26 @@
               <strong id="nearby-label">No one nearby</strong>
             </div>
             <button id="talk-button" class="talk-button" type="button" disabled>Talk</button>
+          </div>
+
+          <div id="minimal-hud" class="minimal-hud" aria-label="Player status">
+            <div>
+              <span>Hero</span>
+              <strong id="hud-hero">No hero</strong>
+            </div>
+            <div>
+              <span>Shards</span>
+              <strong id="hud-shards">0</strong>
+            </div>
+            <div>
+              <span>Weapon</span>
+              <strong id="hud-weapon">None</strong>
+            </div>
+            <div>
+              <span>Wallet</span>
+              <strong id="hud-wallet">Not connected</strong>
+            </div>
+            <button id="chronicle-open" type="button" class="quiet-button">Chronicle <span id="hud-pending">0</span></button>
           </div>
 
           <section id="dialogue" class="dialogue is-hidden" aria-live="polite">
@@ -69,159 +104,123 @@
               <button type="button" data-move="right">▶</button>
             </div>
           </div>
-        </section>
 
-        <aside class="hud" aria-label="Game interface">
-          <section class="panel hero-panel">
-            <div class="panel-heading">
-              <h2>Hero</h2>
-              <span id="hero-count">0</span>
-            </div>
-            <form id="recruit-form" class="recruit-form">
-              <input
-                id="hero-name"
-                name="heroName"
-                type="text"
-                maxlength="40"
-                placeholder="Hero name"
-                autocomplete="off"
-              />
-              <button type="submit">Recruit</button>
-            </form>
-            <div id="selected-hero" class="selected-hero"></div>
-          </section>
-
-          <section class="panel market-panel">
-            <div class="panel-heading">
-              <h2>Market Oracle</h2>
-              <span id="market-clock">--:--:--</span>
-            </div>
-            <div id="market-grid" class="market-grid"></div>
-          </section>
-
-          <section class="panel inventory-panel">
-            <div class="panel-heading">
-              <h2>Inventory</h2>
-              <span id="weapon-count">0</span>
-            </div>
-            <div class="inventory-grid">
-              <div>
-                <span class="inventory-label">Shards</span>
-                <strong id="shard-count">0</strong>
-              </div>
-              <div>
-                <span class="inventory-label">Weapon</span>
-                <strong id="weapon-name">None</strong>
-              </div>
-            </div>
-            <div id="forge-status" class="forge-status">Forge: Idle</div>
-            <div id="weapon-list" class="weapon-list"></div>
-            <div class="weapon-actions">
-              <button id="weapon-equip" type="button">Equip</button>
-              <button id="weapon-transfer" type="button" class="quiet-button">Send</button>
-              <input
-                id="weapon-recipient"
-                type="text"
-                placeholder="Recipient wallet"
-                autocomplete="off"
-                spellcheck="false"
-              />
-            </div>
-          </section>
-
-          <section class="panel arena-panel">
-            <div class="panel-heading">
-              <h2>Arena</h2>
-              <span id="arena-room-status">No challenge</span>
-            </div>
-            <div class="arena-form">
-              <input
-                id="arena-stake"
-                type="text"
-                inputmode="decimal"
-                placeholder="Wager STT"
-                autocomplete="off"
-                spellcheck="false"
-                value="0.01"
-              />
-              <input
-                id="arena-room-id"
-                type="text"
-                inputmode="numeric"
-                placeholder="Challenge id"
-                autocomplete="off"
-                spellcheck="false"
-              />
-              <button id="arena-create" type="button">Challenge</button>
-              <button id="arena-join" type="button" class="quiet-button">Accept</button>
-              <button id="arena-demo" type="button" class="arena-demo-button">Demo Fight</button>
-            </div>
-            <p id="arena-message" class="arena-message">Walk down the lower road and talk to the Arena Master.</p>
-          </section>
-
-          <section class="panel contract-panel">
-            <div class="panel-heading">
-              <h2>Somnia</h2>
-              <span id="wallet-short">Not connected</span>
-            </div>
-            <dl class="contract-grid">
-              <div>
-                <dt>Mode</dt>
-                <dd id="connection-mode">Simulation</dd>
-              </div>
-              <div>
-                <dt>Contract</dt>
-                <dd id="contract-status">No address set</dd>
-              </div>
-              <div>
-                <dt>Version</dt>
-                <dd id="contract-version">Unknown</dd>
-              </div>
-              <div>
-                <dt>Next Hook</dt>
-                <dd id="next-hook">recruitment rite</dd>
-              </div>
-            </dl>
-            <div class="wallet-tools">
-              <input
-                id="contract-address"
-                type="text"
-                placeholder="Current Somnia test contract"
-                autocomplete="off"
-                spellcheck="false"
-              />
-              <div class="wallet-actions">
-                <button id="connect-wallet" type="button">Connect Wallet</button>
-                <button id="reload-heroes" type="button" class="quiet-button">Reload</button>
-                <button id="use-simulation" type="button" class="quiet-button">Simulation</button>
-              </div>
-              <p id="wallet-message" class="wallet-message">Paste the deployed game contract to use Somnia.</p>
-              <div class="chain-queue">
-                <div class="queue-heading">
-                  <span>Pending Omens</span>
-                  <strong id="pending-count">0</strong>
+          <section id="game-screen" class="game-screen is-hidden" aria-live="polite">
+            <div class="game-screen-card">
+              <div class="game-screen-heading">
+                <div>
+                  <span id="game-screen-kicker">Sogent Camp</span>
+                  <h2 id="game-screen-title">Camp Ledger</h2>
                 </div>
-                <ul id="pending-list" class="pending-list"></ul>
+                <button id="game-screen-close" type="button" class="quiet-button">Close</button>
+              </div>
+
+              <div id="screen-recruiter" class="game-screen-page">
+                <form id="recruit-form" class="recruit-form">
+                  <input
+                    id="hero-name"
+                    name="heroName"
+                    type="text"
+                    maxlength="40"
+                    placeholder="Hero name"
+                    autocomplete="off"
+                  />
+                  <button type="submit">Recruit</button>
+                </form>
+                <p class="screen-help">The hidden seed shapes class, rarity, and traits.</p>
+              </div>
+
+              <div id="screen-guildmaster" class="game-screen-page">
+                <div id="selected-hero" class="selected-hero"></div>
+                <div class="panel-heading roster-heading">
+                  <h3>Choose Hero</h3>
+                  <span><span id="hero-count">0</span> heroes</span>
+                </div>
+                <span id="selected-name" hidden>No hero</span>
+                <div id="hero-list" class="hero-list"></div>
+              </div>
+
+              <div id="screen-blacksmith" class="game-screen-page">
+                <div class="panel-heading">
+                  <h3>Forge</h3>
+                  <span><span id="weapon-count">0</span> weapons</span>
+                </div>
+                <div class="inventory-grid">
+                  <div>
+                    <span class="inventory-label">Shards</span>
+                    <strong id="shard-count">0</strong>
+                  </div>
+                  <div>
+                    <span class="inventory-label">Weapon</span>
+                    <strong id="weapon-name">None</strong>
+                  </div>
+                </div>
+                <div id="forge-status" class="forge-status">Forge: Idle</div>
+                <button id="forge-action" type="button" class="forge-action">Start Order</button>
+                <div id="weapon-list" class="weapon-list"></div>
+                <div class="weapon-actions">
+                  <button id="weapon-equip" type="button">Equip</button>
+                  <button id="weapon-transfer" type="button" class="quiet-button">Send</button>
+                  <input
+                    id="weapon-recipient"
+                    type="text"
+                    placeholder="Recipient wallet"
+                    autocomplete="off"
+                    spellcheck="false"
+                  />
+                </div>
+              </div>
+
+              <div id="screen-arena" class="game-screen-page">
+                <div class="panel-heading">
+                  <h3>Arena</h3>
+                  <span id="arena-room-status">No challenge</span>
+                </div>
+                <div class="arena-form">
+                  <input
+                    id="arena-stake"
+                    type="text"
+                    inputmode="decimal"
+                    placeholder="Wager STT"
+                    autocomplete="off"
+                    spellcheck="false"
+                    value="0.01"
+                  />
+                  <input
+                    id="arena-room-id"
+                    type="text"
+                    inputmode="numeric"
+                    placeholder="Challenge id"
+                    autocomplete="off"
+                    spellcheck="false"
+                  />
+                  <button id="arena-create" type="button">Challenge</button>
+                  <button id="arena-join" type="button" class="quiet-button">Accept</button>
+                </div>
+                <p id="arena-message" class="arena-message">Walk down the lower road and talk to the Arena Master.</p>
+              </div>
+
+              <div id="screen-chronicle" class="game-screen-page">
+                <div class="chronicle-grid">
+                  <section>
+                    <div class="panel-heading">
+                      <h3>Pending Omens</h3>
+                      <span id="pending-count">0</span>
+                    </div>
+                    <ul id="pending-list" class="pending-list"></ul>
+                  </section>
+                  <section>
+                    <div class="panel-heading">
+                      <h3>Live Log</h3>
+                      <span id="log-count">0</span>
+                    </div>
+                    <ol id="event-log" class="event-log"></ol>
+                  </section>
+                </div>
               </div>
             </div>
           </section>
-
-          <section class="panel roster-panel">
-            <div class="panel-heading">
-              <h2>Roster</h2>
-              <span id="selected-name">No hero</span>
-            </div>
-            <div id="hero-list" class="hero-list"></div>
-          </section>
-
-          <section class="panel log-panel">
-            <div class="panel-heading">
-              <h2>Live Log</h2>
-              <span id="log-count">0</span>
-            </div>
-            <ol id="event-log" class="event-log"></ol>
-          </section>
-        </aside>
+        </section>
       </section>
     </main>
   </body>

@@ -3,7 +3,7 @@ pragma solidity ^0.8.20;
 
 interface GateDecisionGame {
     function requiredGateDecisionFee() external view returns (uint256);
-    function requestGateDecision(uint256 heroId) external payable returns (uint256 requestId);
+    function startAdventure(uint256 heroId) external payable returns (uint256 requestId);
 }
 
 interface RequestGateVm {
@@ -26,7 +26,7 @@ contract RequestGateDecision {
         uint256 fee = game.requiredGateDecisionFee();
 
         vm.startBroadcast(privateKey);
-        requestId = game.requestGateDecision{value: fee}(heroId);
+        requestId = game.startAdventure{value: fee}(heroId);
         vm.stopBroadcast();
     }
 }

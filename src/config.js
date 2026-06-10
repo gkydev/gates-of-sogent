@@ -8,9 +8,7 @@ export const MASK_64 = 0xffffffffffffffffn;
 export const SOMNIA_CHAIN_ID_DECIMAL = 50312;
 export const SOMNIA_CHAIN_ID_HEX = "0xc488";
 export const SOMNIA_RPC_URL = "https://dream-rpc.somnia.network/";
-export const DEFAULT_GAME_CONTRACT_ADDRESS = "";
-export const STORAGE_CONTRACT_ADDRESS = "gatesOfSogent.contractAddress";
-export const CONTRACT_QUERY_PARAM = "contract";
+export const DEFAULT_GAME_CONTRACT_ADDRESS = "0xEA7bc83F5b52BA4685dEf6d29D748DC10c0b9E69";
 export const WORLD_ASSET = "./public/assets/world/sogent-camp.png";
 export const ARENA_ASSET = "./public/assets/world/arena/arena-ground.png";
 export const FIGHT_CLOUD_ASSET = "./public/assets/effects/fight-cloud.png";
@@ -100,11 +98,7 @@ export const GAME_CONTRACT_ABI = [
     "function equippedWeapons(uint256 heroId) external view returns (uint256)",
     "function getEquippedWeaponBonus(uint256 heroId) external view returns (uint256)",
     "function getForgeOrder(address owner) external view returns (bool active,uint256 tier,uint256 shardCost,uint256 startedAt,uint256 readyAt,uint256 remaining)",
-    "function startGateRun(uint256 heroId) external",
     "function startAdventure(uint256 heroId) external payable returns (uint256 requestId)",
-    "function requestGateDecision(uint256 heroId) external payable returns (uint256 requestId)",
-    "function resolveGateFloor(uint256 heroId) external",
-    "function craftWeapon() external",
     "function startForgeOrder() external returns (uint256 tier)",
     "function claimForgeOrder() external returns (uint256 weaponId)",
     "function equipWeapon(uint256 heroId,uint256 weaponId) external",
@@ -301,7 +295,7 @@ export const NPCS = [
       y: 278,
       color: 0xf0a94b,
       label: "Recruit",
-      dialogue: "Give me a name and I will read the market omens to call a new wanderer into camp.",
+      dialogue: "Give me a name and I will call a new wanderer into camp.",
     },
     {
       id: "warden",

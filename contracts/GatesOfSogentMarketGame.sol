@@ -283,25 +283,11 @@ contract GatesOfSogentMarketGame {
         return ownerHeroes[owner];
     }
 
-    function startGateRun(uint256 heroId) external onlySomniaTestnet {
-        Hero storage hero = heroes[heroId];
-        require(hero.owner == msg.sender, "Not hero owner");
-
-        _startGateRun(heroId, msg.sender);
-    }
-
     function startAdventure(uint256 heroId) external payable onlySomniaTestnet returns (uint256 requestId) {
         Hero storage hero = heroes[heroId];
         require(hero.owner == msg.sender, "Not hero owner");
 
         _startGateRun(heroId, msg.sender);
-        requestId = _requestGateDecision(heroId, msg.sender);
-    }
-
-    function requestGateDecision(uint256 heroId) external payable onlySomniaTestnet returns (uint256 requestId) {
-        Hero storage hero = heroes[heroId];
-        require(hero.owner == msg.sender, "Not hero owner");
-
         requestId = _requestGateDecision(heroId, msg.sender);
     }
 
@@ -343,18 +329,6 @@ contract GatesOfSogentMarketGame {
         pendingGateDecision[heroId] = true;
 
         emit GateDecisionRequested(requestId, heroId, owner);
-    }
-
-    function resolveGateFloor(uint256 heroId) external onlySomniaTestnet {
-        Hero storage hero = heroes[heroId];
-        require(hero.owner == msg.sender, "Not hero owner");
-        require(!pendingGateDecision[heroId], "Decision pending");
-
-        _resolveGateFloor(heroId, "", false);
-    }
-
-    function craftWeapon() external onlySomniaTestnet returns (uint256 tier) {
-        return _startForgeOrder(msg.sender);
     }
 
     function startForgeOrder() external onlySomniaTestnet returns (uint256 tier) {
@@ -572,16 +546,16 @@ contract GatesOfSogentMarketGame {
         bytes memory steps = bytes(route);
 
         for (uint256 i = 0; i < steps.length && gateRuns[heroId].active; i++) {
-            string memory decision = steps[i] == bytes1("P") ? "CONTINUE" : "RETURN";
-            _resolveGateFloor(heroId, decision, true);
+            bool wantsContinue = steps[i] == bytes1("P");
+            _resolveGateFloor(heroId, wantsContinue);
 
-            if (steps[i] == bytes1("S")) {
+            if (!wantsContinue) {
                 return;
             }
         }
     }
 
-    function _resolveGateFloor(uint256 heroId, string memory decision, bool hasDecision) private {
+    function _resolveGateFloor(uint256 heroId, bool wantsContinue) private {
         Hero storage hero = heroes[heroId];
         GateRun storage run = gateRuns[heroId];
         require(run.active, "No active gate");
@@ -608,14 +582,6 @@ contract GatesOfSogentMarketGame {
             return;
         }
 
-        bool wantsContinue = hasDecision ? GateAdventureLib.isContinueDecision(decision) : GateAdventureLib.continuesDeeper(
-            hero.bravery,
-            hero.greed,
-            hero.wisdom,
-            run.hp,
-            roll
-        );
-
         if (wantsContinue && GateAdventureLib.continuesDeeper(hero.bravery, hero.greed, hero.wisdom, run.hp, roll)) {
             run.floor = floor + 1;
             emit GateFloorResolved(
@@ -625,7 +591,7 @@ contract GatesOfSogentMarketGame {
                 run.hp,
                 run.loot,
                 run.active,
-                hasDecision ? "LLM_CONTINUED" : "CONTINUED"
+                "CONTINUED"
             );
             return;
         }
@@ -639,7 +605,7 @@ contract GatesOfSogentMarketGame {
             run.hp,
             run.loot,
             run.active,
-            hasDecision && wantsContinue ? "LLM_BLOCKED_RETURNED" : hasDecision ? "LLM_RETURNED" : "RETURNED"
+            wantsContinue ? "BLOCKED_RETURNED" : "RETURNED"
         );
     }
 
@@ -864,13 +830,9 @@ contract GatesOfSogentMarketGame {
 
     function _gateAdventureSystem() private pure returns (string memory) {
         return
-            "You are a concise RPG battle narrator and survival instinct for one hero. "
-            "Return exactly two plain-text lines: ROUTE=<route> and STORY=<story>. "
-            "The route must use only P and S, max five letters, and must end with S. "
-            "P means pass deeper after this floor. S means stop after this floor and return. "
-            "The story must describe what happened on each chosen floor in order. "
-            "Mention the floor names from the prompt. Do not show the route letters. "
-            "Do not invent exact HP, damage, loot, or rewards.";
+            "RPG gate narrator. Return exactly ROUTE=<P/S route ending S> newline STORY=<dark floor story>. "
+            "P=push deeper, S=return. Use floor names, monsters/events, hero reaction, and why they push or stop. "
+            "No exact HP, damage, loot, or visible route letters in STORY.";
     }
 
     function _gateAdventurePrompt(uint256 heroId) private view returns (string memory) {
@@ -895,16 +857,13 @@ contract GatesOfSogentMarketGame {
                 _toString(run.floor),
                 ". HP ",
                 _toString(run.hp),
-                ". Carried shards ",
+                ". Shards ",
                 _toString(run.loot),
-                ". Floor facts if attempted in order: ",
+                ". Floors: ",
                 _floorPreview(heroId),
-                " Choose a route using personality: cowardly heroes stop early, greedy heroes risk more, "
-                "wise heroes stop before likely death, brave heroes push deeper. "
-                "Story rules: 3 to 5 short sentences, one sentence per chosen floor. "
-                "Start each sentence with the floor name, then describe the enemy or event, "
-                "the hero reaction, and why they continued or returned. End with a complete sentence. "
-                "Return exactly ROUTE=<route> newline STORY=<floor-by-floor paragraph under 750 chars>."
+                " Decide by traits: greed risks, wisdom avoids death, bravery pushes. "
+                "Write 3-5 complete sentences, one per chosen floor, each starting with the floor name. "
+                "Return exactly ROUTE=<route> newline STORY=<under 750 chars>."
             );
     }
 
@@ -923,10 +882,10 @@ contract GatesOfSogentMarketGame {
             preview = string.concat(
                 preview,
                 _toString(run.floor),
-                ". ",
+                " ",
                 GateAdventureLib.floorName(run.floor),
-                ": ",
-                damage >= run.hp ? "fatal damage" : string.concat(_toString(damage), " damage"),
+                " dmg ",
+                damage >= run.hp ? "fatal" : _toString(damage),
                 ", ",
                 _toString(lootGain),
                 " shards. "
@@ -946,11 +905,8 @@ contract GatesOfSogentMarketGame {
 
     function _arenaFightSystem() private pure returns (string memory) {
         return
-            "You are a concise RPG arena fight narrator. "
-            "The smart contract already decided winner, loser, strengths, and payout. "
-            "Do not change the result. Return exactly one plain-text line: STORY=<story>. "
-            "The story must describe three quick combat beats, why the winner gained advantage, and the final blow. "
-            "Do not invent exact token amounts beyond the provided stake and payout.";
+            "RPG arena narrator. Contract already chose winner. Return exactly STORY=<3-4 combat beats, advantage, final blow>. "
+            "Do not change winner or invent token amounts.";
     }
 
     function _arenaFightPrompt(uint256 roomId) private view returns (string memory) {
@@ -980,8 +936,7 @@ contract GatesOfSogentMarketGame {
                 _toString(room.stake),
                 ". Payout in wei: ",
                 _toString(room.stake * 2),
-                ". Write 4 short sentences, old-school dark fantasy arena tone, under 650 characters. "
-                "Return exactly STORY=<paragraph>."
+                ". Dark old-school fantasy tone, under 650 chars. Return STORY=<paragraph>."
             );
     }
 
