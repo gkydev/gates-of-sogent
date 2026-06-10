@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="public/assets/ui/generated/game-logo-pixel.png" alt="The Gate of Sogents" width="420" />
+</p>
+
 # The Gate of Sogents
 
 The Gate of Sogents is an on-chain RPG prototype built for Somnia.
