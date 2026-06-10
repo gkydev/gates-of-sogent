@@ -12,8 +12,8 @@ import {
   PLAYER_DIRECTIONS,
   NPC_SHEET_IDS,
   STANDALONE_NPC_ASSETS,
-} from "./config.js?v=20260610-dialogue3";
-import { normalizeError } from "./utils.js?v=20260610-dialogue3";
+} from "./config.js?v=20260610-dialogue2";
+import { normalizeError } from "./utils.js?v=20260610-dialogue2";
 
 export async function loadTextures({ addEvent } = {}) {
     const result = {
