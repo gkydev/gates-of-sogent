@@ -6,7 +6,7 @@ import {
   SOMNIA_CHAIN_ID_HEX,
   SOMNIA_RPC_URL,
   WEAPON_SHARD_COST,
-} from "./config.js?v=20260610-collision3";
+} from "./config.js?v=20260610-portrait1";
 import {
   fromContractPrice,
   getClass,
@@ -17,7 +17,7 @@ import {
   shortAddress,
   toContractInt,
   traitFromSeed,
-} from "./utils.js?v=20260610-collision3";
+} from "./utils.js?v=20260610-portrait1";
 
 export function SimulationGameAdapter() {
     this.nextHeroId = 1;
